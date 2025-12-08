@@ -1,15 +1,20 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	"zai/internal/app"
 )
 
-var historyLimit int
+var (
+	historyLimit int
+	historyJSON  bool
+)
 
 var historyCmd = &cobra.Command{
 	Use:   "history",
@@ -23,6 +28,7 @@ var historyCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(historyCmd)
 	historyCmd.Flags().IntVarP(&historyLimit, "limit", "l", 10, "number of entries (0 for all)")
+	historyCmd.Flags().BoolVar(&historyJSON, "json", false, "Output in JSON format")
 }
 
 func showHistory() error {
@@ -37,44 +43,61 @@ func showHistory() error {
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIME\tTYPE\tMODEL\tPROMPT\tRESPONSE")
-	fmt.Fprintln(w, "────\t────\t─────\t──────\t────────")
-
-	for _, entry := range entries {
-		// Determine type display
-		typeDisplay := entry.Type
-		if typeDisplay == "" {
-			typeDisplay = "chat" // Default for backward compatibility
+	if historyJSON {
+		// Create structured JSON output
+		output := map[string]interface{}{
+			"history":   entries,
+			"count":     len(entries),
+			"limit":     historyLimit,
+			"timestamp": time.Now().Format(time.RFC3339),
 		}
 
-		// Special handling for image entries
-		var responseDisplay string
-		if entry.Type == "image" {
-			responseDisplay = fmt.Sprintf("🖼️ %s", entry.ImageSize)
-		} else if entry.Type == "web" {
-			responseDisplay = "🌐 web content"
-		} else {
-			// Handle Response as interface{}
-			if respStr, ok := entry.Response.(string); ok {
-				responseDisplay = truncate(respStr, 30)
-			} else {
-				responseDisplay = "📝 complex response"
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON: %w", err)
+		}
+		fmt.Println(string(data))
+	} else {
+		// Display human-readable table format
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "TIME\tTYPE\tMODEL\tPROMPT\tRESPONSE")
+		fmt.Fprintln(w, "────\t────\t─────\t──────\t────────")
+
+		for _, entry := range entries {
+			// Determine type display
+			typeDisplay := entry.Type
+			if typeDisplay == "" {
+				typeDisplay = "chat" // Default for backward compatibility
 			}
+
+			// Special handling for image entries
+			var responseDisplay string
+			if entry.Type == "image" {
+				responseDisplay = fmt.Sprintf("🖼️ %s", entry.ImageSize)
+			} else if entry.Type == "web" {
+				responseDisplay = "🌐 web content"
+			} else {
+				// Handle Response as interface{}
+				if respStr, ok := entry.Response.(string); ok {
+					responseDisplay = truncate(respStr, 30)
+				} else {
+					responseDisplay = "📝 complex response"
+				}
+			}
+
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+				entry.Timestamp.Format("01-02 15:04"),
+				typeDisplay,
+				entry.Model,
+				truncate(entry.Prompt, 30),
+				responseDisplay,
+			)
 		}
+		w.Flush()
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			entry.Timestamp.Format("01-02 15:04"),
-			typeDisplay,
-			entry.Model,
-			truncate(entry.Prompt, 30),
-			responseDisplay,
-		)
-	}
-	w.Flush()
-
-	if historyLimit > 0 && len(entries) >= historyLimit {
-		fmt.Printf("\nShowing %d most recent. Use -l 0 for all.\n", historyLimit)
+		if historyLimit > 0 && len(entries) >= historyLimit {
+			fmt.Printf("\nShowing %d most recent. Use -l 0 for all.\n", historyLimit)
+		}
 	}
 
 	return nil

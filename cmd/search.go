@@ -129,7 +129,13 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	duration := time.Since(start)
 
 	// Format and display results
-	output, err := formatSearchOutput(resp.SearchResult, searchFormat, query, duration, viper.GetBool("verbose"))
+	// Use JSON format if either --json global flag or --format json is specified
+	format := searchFormat
+	if viper.GetBool("json") {
+		format = "json"
+	}
+
+	output, err := formatSearchOutput(resp.SearchResult, format, query, duration, viper.GetBool("verbose"))
 	if err != nil {
 		return fmt.Errorf("failed to format output: %w", err)
 	}

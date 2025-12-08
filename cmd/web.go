@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -35,6 +36,7 @@ var (
 	webWithImagesSum   bool
 	webWithLinksSum    bool
 	webNoRetainImages  bool
+	webJSON            bool
 )
 
 func runWeb(cmd *cobra.Command, args []string) error {
@@ -91,27 +93,47 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to fetch web content: %w", err)
 	}
 
-	// Display results
-	fmt.Printf("Title: %s\n", resp.ReaderResult.Title)
-	fmt.Printf("URL: %s\n", resp.ReaderResult.URL)
-	if resp.ReaderResult.Description != "" {
-		fmt.Printf("Description: %s\n", resp.ReaderResult.Description)
-	}
-	fmt.Printf("\nContent:\n%s\n", resp.ReaderResult.Content)
-
-	// Display metadata if available
-	if len(resp.ReaderResult.Metadata) > 0 {
-		fmt.Printf("\nMetadata:\n")
-		for k, v := range resp.ReaderResult.Metadata {
-			fmt.Printf("  %s: %v\n", k, v)
+	// Output results
+	if webJSON {
+		// Create structured JSON output
+		output := map[string]interface{}{
+			"url":               resp.ReaderResult.URL,
+			"title":             resp.ReaderResult.Title,
+			"description":       resp.ReaderResult.Description,
+			"content":           resp.ReaderResult.Content,
+			"metadata":          resp.ReaderResult.Metadata,
+			"external_resources": resp.ReaderResult.ExternalResources,
+			"timestamp":         time.Now().Format(time.RFC3339),
 		}
-	}
 
-	// Display external resources if available
-	if len(resp.ReaderResult.ExternalResources) > 0 {
-		fmt.Printf("\nExternal Resources:\n")
-		for k, v := range resp.ReaderResult.ExternalResources {
-			fmt.Printf("  %s: %v\n", k, v)
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON: %w", err)
+		}
+		fmt.Println(string(data))
+	} else {
+		// Display human-readable results
+		fmt.Printf("Title: %s\n", resp.ReaderResult.Title)
+		fmt.Printf("URL: %s\n", resp.ReaderResult.URL)
+		if resp.ReaderResult.Description != "" {
+			fmt.Printf("Description: %s\n", resp.ReaderResult.Description)
+		}
+		fmt.Printf("\nContent:\n%s\n", resp.ReaderResult.Content)
+
+		// Display metadata if available
+		if len(resp.ReaderResult.Metadata) > 0 {
+			fmt.Printf("\nMetadata:\n")
+			for k, v := range resp.ReaderResult.Metadata {
+				fmt.Printf("  %s: %v\n", k, v)
+			}
+		}
+
+		// Display external resources if available
+		if len(resp.ReaderResult.ExternalResources) > 0 {
+			fmt.Printf("\nExternal Resources:\n")
+			for k, v := range resp.ReaderResult.ExternalResources {
+				fmt.Printf("  %s: %v\n", k, v)
+			}
 		}
 	}
 
@@ -144,4 +166,5 @@ func init() {
 	webCmd.Flags().BoolVar(&webWithImagesSum, "with-images-summary", false, "Include image summary")
 	webCmd.Flags().BoolVar(&webWithLinksSum, "with-links-summary", false, "Include links summary")
 	webCmd.Flags().BoolVar(&webNoRetainImages, "no-retain-images", false, "Do not retain images")
+	webCmd.Flags().BoolVar(&webJSON, "json", false, "Output in JSON format")
 }

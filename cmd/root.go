@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -18,6 +20,7 @@ var (
 	verbose  bool
 	filePath string
 	think    bool
+	jsonOutput bool
 )
 
 var rootCmd = &cobra.Command{
@@ -96,10 +99,12 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().StringVarP(&filePath, "file", "f", "", "include file contents in prompt")
 	rootCmd.PersistentFlags().BoolVar(&think, "think", false, "enable thinking/reasoning mode")
+	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output in JSON format")
 
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("file", rootCmd.PersistentFlags().Lookup("file"))
 	_ = viper.BindPFlag("think", rootCmd.PersistentFlags().Lookup("think"))
+	_ = viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
 }
 
 func initConfig() error {
@@ -185,6 +190,25 @@ func runOneShot(prompt string) error {
 		return fmt.Errorf("failed to get response: %w", err)
 	}
 
-	fmt.Println(response)
+	if viper.GetBool("json") {
+		// Create structured JSON output
+		output := map[string]interface{}{
+			"prompt":      prompt,
+			"response":    response,
+			"model":       viper.GetString("api.model"),
+			"file":        opts.FilePath,
+			"think":       opts.Think,
+			"timestamp":   time.Now().Format(time.RFC3339),
+		}
+
+		data, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON: %w", err)
+		}
+		fmt.Println(string(data))
+	} else {
+		fmt.Println(response)
+	}
+
 	return nil
 }

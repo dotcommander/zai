@@ -79,6 +79,7 @@ zai "Explain quantum computing"
 zai -f main.go "Explain this code"
 zai -v "What is 2+2?"                    # verbose with debug info
 zai --think "Analyze this problem"       # enable reasoning mode
+zai --json "What is 2+2?"               # output as JSON
 ```
 
 ### Piped Input
@@ -109,6 +110,7 @@ zai web https://example.com
 zai web https://example.com --format text
 zai web https://example.com --no-cache
 zai web https://example.com --timeout 30
+zai web https://example.com --json         # output as JSON
 
 # Auto-detect URLs in chat
 zai "Summarize https://example.com/article"
@@ -120,7 +122,8 @@ zai "Summarize https://example.com/article"
 zai search "golang best practices"
 zai search "AI news" -c 5 -r oneWeek      # With count and recency
 zai search "github.com" -d github.com     # Domain filter
-zai search "query" -o json               # JSON output
+zai search "query" -o json               # JSON output (format flag)
+zai search "query" --json                # JSON output (global flag)
 
 # Search in chat
 zai chat
@@ -138,6 +141,7 @@ zai image "cute cat" --style cartoon
 ### Model Management
 ```bash
 zai model list                    # List available models
+zai model list --json             # List models as JSON
 zai model current                 # Show current model
 zai model set glm-4.6            # Switch model
 ```
@@ -148,6 +152,7 @@ zai history                       # Show chat history
 zai history -l 0                 # Show all history
 zai history -n 10                # Show last 10 entries
 zai history --search "quantum"    # Search history
+zai history --json               # Output history as JSON
 ```
 
 ## Command Reference
@@ -159,6 +164,7 @@ zai history --search "quantum"    # Search history
 | `-v, --verbose` | Show debug info and token usage |
 | `--config string` | Custom config file path (default `~/.config/zai/config.yaml`) |
 | `--think` | Enable thinking/reasoning mode |
+| `--json` | Output in JSON format (structured data with metadata) |
 | `-h, --help` | Help for zai |
 
 ### Commands
@@ -185,6 +191,46 @@ compinit
 # Fish
 zai completion fish > ~/.config/fish/completions/zai.fish
 ```
+
+## JSON Output
+
+The `--json` flag provides structured output for programmatic use and integration with other tools.
+
+### Supported Commands
+- **Root (one-shot)**: `zai "prompt" --json`
+- **Search**: `zai search "query" --json`
+- **Web**: `zai web https://example.com --json`
+- **Model List**: `zai model list --json`
+- **History**: `zai history --json`
+
+### JSON Structure
+Each JSON output includes:
+- **Main data**: Results, content, or response
+- **Metadata**: Timestamp, count, model information
+- **Format**: Consistent 2-space indentation
+
+### Example JSON Output
+```json
+{
+  "query": "golang best practices",
+  "count": 10,
+  "duration": "1.234s",
+  "results": [
+    {
+      "title": "Go Best Practices",
+      "link": "https://example.com/go-practices",
+      "content": "Comprehensive guide to Go development..."
+    }
+  ],
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+### Use Cases
+- **CI/CD pipelines**: Parse results for automation
+- **Scripts**: Process data programmatically
+- **Integration**: Feed into other tools
+- **Logging**: Structured output for analysis
 
 ## Environment Variables
 
