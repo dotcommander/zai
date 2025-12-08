@@ -5,7 +5,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -36,13 +39,14 @@ func runChatREPL() error {
 	client := newClient()
 	baseOpts := app.DefaultChatOptions()
 	baseOpts.FilePath = viper.GetString("file")
+	baseOpts.Think = viper.GetBool("think")
 
 	// Track conversation context
 	var conversationContext []app.Message
 
 	// Show welcome
 	fmt.Println("🤖 Z.AI Interactive Chat")
-	fmt.Println("Commands: help, history, clear, exit")
+	fmt.Println("Commands: help, history, clear, search <query>, exit")
 	if baseOpts.FilePath != "" {
 		fmt.Printf("📄 File loaded: %s\n", baseOpts.FilePath)
 	}
@@ -59,6 +63,59 @@ func runChatREPL() error {
 
 		input := strings.TrimSpace(scanner.Text())
 		if input == "" {
+			continue
+		}
+
+		// Check for search command
+		if strings.HasPrefix(input, "/search ") || strings.HasPrefix(input, "search ") {
+			query := strings.TrimSpace(input[len("/search "):])
+			if strings.HasPrefix(input, "search ") {
+				query = strings.TrimSpace(input[len("search "):])
+			}
+
+			// Parse search options
+			query, opts := parseSearchCommand(query)
+
+			// Perform search
+			fmt.Printf("🔍 Searching for: %s\n", query)
+			start := time.Now()
+
+			resp, err := client.SearchWeb(context.Background(), query, opts)
+			if err != nil {
+				fmt.Printf("❌ Search failed: %v\n", err)
+				continue
+			}
+
+			duration := time.Since(start)
+			fmt.Printf("⏱️  Found %d results in %v\n\n", len(resp.SearchResult), duration)
+
+			// Format and display results
+			for i, result := range resp.SearchResult {
+				fmt.Printf("%d. %s\n", i+1, result.Title)
+				fmt.Printf("   %s\n", result.Link)
+				if result.PublishDate != "" {
+					fmt.Printf("   📅 %s\n", result.PublishDate)
+				}
+				if result.Content != "" {
+					content := result.Content
+					if len(content) > 200 {
+						content = content[:200] + "..."
+					}
+					fmt.Printf("   %s\n\n", content)
+				}
+			}
+
+			// Add formatted search results to conversation
+			searchFormatted := app.FormatSearchResultsForChat(resp.SearchResult, query)
+			conversationContext = append(conversationContext,
+				app.Message{Role: "user", Content: fmt.Sprintf("Search: %s", query)},
+				app.Message{Role: "assistant", Content: searchFormatted},
+			)
+			if len(conversationContext) > 20 {
+				conversationContext = conversationContext[2:]
+			}
+
+			sessionHistory = append(sessionHistory, input)
 			continue
 		}
 
@@ -123,17 +180,60 @@ func runChatREPL() error {
 	return nil
 }
 
+func parseSearchCommand(input string) (query string, opts app.SearchOptions) {
+	// Default options
+	opts = app.SearchOptions{
+		Count:         10,
+		RecencyFilter: "noLimit",
+	}
+
+	// Parse flags
+	flagRegex := regexp.MustCompile(`-(\w+)\s*(\S+)`)
+	matches := flagRegex.FindAllStringSubmatch(input, -1)
+
+	// Remove flags from query
+	cleanQuery := input
+	for _, match := range matches {
+		flag := match[1]
+		value := match[2]
+
+		switch flag {
+		case "c", "count":
+			if count, err := strconv.Atoi(value); err == nil && count > 0 && count <= 50 {
+				opts.Count = count
+			}
+		case "r", "recency":
+			opts.RecencyFilter = value
+		case "d", "domain":
+			opts.DomainFilter = value
+		}
+
+		// Remove this flag from query
+		cleanQuery = strings.ReplaceAll(cleanQuery, match[0], "")
+	}
+
+	query = strings.TrimSpace(cleanQuery)
+	return query, opts
+}
+
 func printChatHelp() {
 	fmt.Print(`
 Commands:
-  help, ?      Show this help
-  history      Show session history
-  context      Show conversation context
-  clear        Clear conversation and screen
-  exit, quit   Exit chat
+  help, ?           Show this help
+  history           Show session history
+  context           Show conversation context
+  clear             Clear conversation and screen
+  search <query>    Search the web
+  /search <query>   Search the web (alternative format)
+  exit, quit        Exit chat
+
+Search options:
+  search "golang" -c 5 -r oneWeek
+  /search "AI news" -d github.com
 
 Tips:
   - Previous messages are used as context
+  - Search results are automatically added to conversation
   - Use -f flag to include a file in context
   - Arrow keys for input history (if supported)
 `)

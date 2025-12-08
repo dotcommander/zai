@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ var (
 	cfgFile  string
 	verbose  bool
 	filePath string
+	think    bool
 )
 
 var rootCmd = &cobra.Command{
@@ -26,6 +28,11 @@ var rootCmd = &cobra.Command{
 One-shot mode:
   zai "Explain quantum computing"
   zai -f main.go "Explain this code"
+
+Piped input:
+  pbpaste | zai "explain this"
+  cat file.txt | zai "summarize"
+  echo "Hello" | zai
 
 Interactive REPL:
   zai chat
@@ -42,11 +49,37 @@ History:
 		return initConfig()
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) == 0 {
+		var prompt string
+		var stdinData string
+
+		// Check for stdin data (piped input)
+		if hasStdinData() {
+			data, err := readStdin()
+			if err != nil {
+				return fmt.Errorf("failed to read stdin: %w", err)
+			}
+			stdinData = data
+		}
+
+		// Build prompt from args
+		if len(args) > 0 {
+			prompt = strings.Join(args, " ")
+		}
+
+		// Combine: prompt + stdin (stdin as context with XML tags)
+		if stdinData != "" {
+			if prompt != "" {
+				prompt = prompt + "\n\n<stdin>\n" + stdinData + "\n</stdin>"
+			} else {
+				prompt = stdinData
+			}
+		}
+
+		// Require some input
+		if prompt == "" {
 			return cmd.Help()
 		}
-		// One-shot mode: zai "prompt"
-		prompt := strings.Join(args, " ")
+
 		return runOneShot(prompt)
 	},
 }
@@ -62,9 +95,11 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default $HOME/.config/zai/config.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().StringVarP(&filePath, "file", "f", "", "include file contents in prompt")
+	rootCmd.PersistentFlags().BoolVar(&think, "think", false, "enable thinking/reasoning mode")
 
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("file", rootCmd.PersistentFlags().Lookup("file"))
+	_ = viper.BindPFlag("think", rootCmd.PersistentFlags().Lookup("think"))
 }
 
 func initConfig() error {
@@ -116,11 +151,27 @@ func newClient() *app.Client {
 	return app.NewClient(cfg, logger, history)
 }
 
+// hasStdinData detects if stdin has piped/redirected data.
+func hasStdinData() bool {
+	stat, _ := os.Stdin.Stat()
+	return (stat.Mode() & os.ModeCharDevice) == 0
+}
+
+// readStdin reads all data from stdin.
+func readStdin() (string, error) {
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
 // runOneShot executes a single prompt and exits.
 func runOneShot(prompt string) error {
 	client := newClient()
 	opts := app.DefaultChatOptions()
 	opts.FilePath = viper.GetString("file")
+	opts.Think = viper.GetBool("think")
 
 	if viper.GetBool("verbose") {
 		fmt.Fprintf(os.Stderr, "🤖 Prompt: %s\n", prompt)

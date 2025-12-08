@@ -38,15 +38,37 @@ func showHistory() error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "TIME\tMODEL\tPROMPT\tRESPONSE")
-	fmt.Fprintln(w, "────\t─────\t──────\t────────")
+	fmt.Fprintln(w, "TIME\tTYPE\tMODEL\tPROMPT\tRESPONSE")
+	fmt.Fprintln(w, "────\t────\t─────\t──────\t────────")
 
 	for _, entry := range entries {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		// Determine type display
+		typeDisplay := entry.Type
+		if typeDisplay == "" {
+			typeDisplay = "chat" // Default for backward compatibility
+		}
+
+		// Special handling for image entries
+		var responseDisplay string
+		if entry.Type == "image" {
+			responseDisplay = fmt.Sprintf("🖼️ %s", entry.ImageSize)
+		} else if entry.Type == "web" {
+			responseDisplay = "🌐 web content"
+		} else {
+			// Handle Response as interface{}
+			if respStr, ok := entry.Response.(string); ok {
+				responseDisplay = truncate(respStr, 30)
+			} else {
+				responseDisplay = "📝 complex response"
+			}
+		}
+
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			entry.Timestamp.Format("01-02 15:04"),
+			typeDisplay,
 			entry.Model,
 			truncate(entry.Prompt, 30),
-			truncate(entry.Response, 30),
+			responseDisplay,
 		)
 	}
 	w.Flush()

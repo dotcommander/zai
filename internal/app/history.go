@@ -10,13 +10,23 @@ import (
 	"time"
 )
 
-// HistoryEntry represents a single chat history entry.
+// HistoryEntry represents a single chat, image generation, or web reader history entry.
 type HistoryEntry struct {
-	Timestamp  time.Time `json:"timestamp"`
-	Prompt     string    `json:"prompt"`
-	Response   string    `json:"response"`
-	Model      string    `json:"model"`
-	TokenUsage Usage     `json:"token_usage,omitempty"`
+	ID         string      `json:"id,omitempty"`
+	Timestamp  time.Time   `json:"timestamp"`
+	Prompt     string      `json:"prompt"`
+	Response   interface{} `json:"response"` // Support string or complex response
+	Model      string      `json:"model"`
+	TokenUsage Usage       `json:"token_usage,omitempty"`
+
+	// Image generation fields
+	ImageURL    string `json:"image_url,omitempty"`
+	ImageSize   string `json:"image_size,omitempty"`
+	ImageFormat string `json:"image_format,omitempty"`
+	Type        string `json:"type"` // "chat", "image", or "web"
+
+	// Web reader fields
+	WebSources []string `json:"web_sources,omitempty"`
 }
 
 // FileHistoryStore implements HistoryStore with JSONL file storage.
@@ -44,6 +54,18 @@ func (h *FileHistoryStore) Save(entry HistoryEntry) error {
 	dir := filepath.Dir(h.path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create history directory: %w", err)
+	}
+
+	// Handle response conversion for compatibility
+	if _, ok := entry.Response.(string); ok {
+		// Response is already a string, no conversion needed
+	} else {
+		// Response is complex type, convert to JSON string for storage
+		data, err := json.Marshal(entry.Response)
+		if err != nil {
+			return fmt.Errorf("failed to marshal response: %w", err)
+		}
+		entry.Response = string(data)
 	}
 
 	data, err := json.Marshal(entry)
@@ -105,4 +127,63 @@ func (h *FileHistoryStore) GetRecent(limit int) ([]HistoryEntry, error) {
 // Path returns the history file path.
 func (h *FileHistoryStore) Path() string {
 	return h.path
+}
+
+// NewImageHistoryEntry creates a history entry for image generation.
+func NewImageHistoryEntry(prompt string, imageData ImageData, model string) HistoryEntry {
+	return HistoryEntry{
+		Timestamp:  time.Now(),
+		Prompt:     prompt,
+		Response:   fmt.Sprintf("Generated image: %s", imageData.URL),
+		Model:      model,
+		ImageURL:   imageData.URL,
+		ImageSize:  fmt.Sprintf("%dx%d", imageData.Width, imageData.Height),
+		ImageFormat: imageData.Format,
+		Type:       "image",
+	}
+}
+
+// NewChatHistoryEntry creates a history entry for chat (sets type to "chat").
+func NewChatHistoryEntry(timestamp time.Time, prompt, response, model string, usage Usage) HistoryEntry {
+	return HistoryEntry{
+		Timestamp:  timestamp,
+		Prompt:     prompt,
+		Response:   response,
+		Model:      model,
+		TokenUsage: usage,
+		Type:       "chat",
+	}
+}
+
+// NewWebHistoryEntry creates a history entry for web content fetching.
+func NewWebHistoryEntry(id, prompt string, resp *WebReaderResponse, sources []string) HistoryEntry {
+	return HistoryEntry{
+		ID:         id,
+		Timestamp:  time.Now(),
+		Prompt:     prompt,
+		Response: map[string]interface{}{
+			"url":         resp.ReaderResult.URL,
+			"title":       resp.ReaderResult.Title,
+			"description": resp.ReaderResult.Description,
+			"content":     resp.ReaderResult.Content,
+		},
+		Model:      "web-reader",
+		Type:       "web",
+		WebSources: sources,
+	}
+}
+
+// NewSearchHistoryEntry creates a history entry for web search.
+func NewSearchHistoryEntry(timestamp time.Time, query string, resp *WebSearchResponse) HistoryEntry {
+	return HistoryEntry{
+		Timestamp: timestamp,
+		Prompt:    fmt.Sprintf("search: %s", query),
+		Response: map[string]interface{}{
+			"query":         query,
+			"result_count":  len(resp.SearchResult),
+			"results":       resp.SearchResult,
+		},
+		Model: "web-search",
+		Type:  "web_search",
+	}
 }
