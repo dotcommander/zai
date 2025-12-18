@@ -83,34 +83,67 @@ func shouldEnhancePrompt() bool {
 }
 
 // enhanceImagePrompt uses the chat LLM to transform a simple description
-// into a professional, detailed image generation prompt.
+// into a professional, detailed image generation prompt optimized for CogView/Z-Image.
 func enhanceImagePrompt(client *app.Client, prompt string) (string, error) {
-	systemPrompt := `You are an expert image prompt engineer. Transform simple descriptions into ultra-detailed, professional image generation prompts.
+	systemPrompt := `You are an elite image prompt engineer specializing in AI image generation. Transform simple concepts into cinematic, production-ready prompts.
 
-Include relevant aspects from:
-- Photography: lens type, aperture, focal length, depth of field, exposure
-- Lighting: natural/studio, direction, quality, golden hour, rim light, volumetric
-- Style: photorealistic, cinematic, artistic, illustration, 3D render
-- Mood: atmosphere, emotion, color palette, tone
-- Technical: resolution (8K, 4K), detail level, sharpness, clarity
-- Composition: rule of thirds, leading lines, framing, perspective
-- Film/Camera: specific camera models, film stock, color grading
+## PROMPT ARCHITECTURE (follow this order)
+[SUBJECT ANCHOR] → [ENVIRONMENT & CONTEXT] → [ARTISTIC DIRECTION] → [TECHNICAL PARAMETERS]
 
-Output ONLY the enhanced prompt, nothing else. Keep it under 500 characters.`
+## REQUIRED ELEMENTS
+1. **Subject**: Lead with main subject, be specific (not "a woman" but "a weathered elderly fisherman with salt-and-pepper beard")
+2. **Action/Pose**: What is the subject doing? Dynamic verbs create energy
+3. **Environment**: Ground the scene - location, time of day, weather, atmosphere
+4. **Lighting**: ALWAYS specify - this transforms amateur to professional
+   - Golden hour, blue hour, overcast diffused, harsh midday
+   - Rim lighting, volumetric god rays, subsurface scattering (skin)
+   - Dramatic chiaroscuro, soft studio lighting, natural window light
+
+## PHOTOGRAPHY PARAMETERS (for photorealistic)
+- **Lens**: 14-24mm (dramatic wide), 35-50mm (natural), 85mm (portrait), 200mm+ (compressed telephoto)
+- **Aperture**: f/1.4-2.8 (dreamy bokeh), f/5.6-8 (balanced), f/11-16 (sharp throughout)
+- **Camera**: "Shot on Canon EOS R5", "Hasselblad medium format", "ARRI Alexa cinematic"
+- **Film**: "Kodak Portra 400 colors", "Fujifilm Velvia saturation", "CineStill 800T tungsten"
+
+## STYLE MODIFIERS (pick appropriate ones)
+- Art: oil painting, watercolor, digital art, concept art, anime cel-shaded, art nouveau
+- Photo: photorealistic, editorial, documentary, street photography, fashion
+- Render: Unreal Engine 5, Octane render, ray tracing, subsurface scattering
+- Mood: ethereal, moody, dramatic, whimsical, dystopian, serene, epic, intimate
+
+## QUALITY ENHANCERS
+- Resolution: "8K resolution", "ultra-detailed", "intricate details"
+- Texture: "micro-details", "tactile textures", "film grain"
+- Composition: "rule of thirds", "leading lines", "negative space", "Dutch angle"
+- Polish: "sharp focus", "professional color grading", "award-winning photography"
+
+## OUTPUT RULES
+- Write as vivid natural language sentences, NOT keyword lists
+- Be specific and evocative - paint a picture with words
+- 150-300 characters ideal for CogView
+- Output ONLY the enhanced prompt - no explanations, no quotes, no prefixes`
 
 	opts := app.ChatOptions{
-		Temperature: app.Float64Ptr(0.7),
-		MaxTokens:   app.IntPtr(200),
+		Temperature: app.Float64Ptr(0.8),
+		MaxTokens:   app.IntPtr(250),
 		Context: []app.Message{
 			{Role: "system", Content: systemPrompt},
 		},
 	}
 
-	enhanced, err := client.Chat(context.Background(), "Enhance this image prompt: "+prompt, opts)
+	userPrompt := fmt.Sprintf("Transform this into a cinematic image prompt: %s", prompt)
+	enhanced, err := client.Chat(context.Background(), userPrompt, opts)
 	if err != nil {
-		return prompt, err // Fall back to original on error
+		return "", err // Return error, let caller handle fallback
 	}
-	return strings.TrimSpace(enhanced), nil
+
+	// Clean up any quotes or prefixes the model might add
+	result := strings.TrimSpace(enhanced)
+	result = strings.Trim(result, "\"'")
+	result = strings.TrimPrefix(result, "Enhanced prompt: ")
+	result = strings.TrimPrefix(result, "Prompt: ")
+
+	return result, nil
 }
 
 func runImageGeneration(prompt string) error {
