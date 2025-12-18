@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -189,12 +190,28 @@ func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (str
 	return response, nil
 }
 
-// buildContent combines prompt with optional file contents.
+// buildContent combines prompt with optional file contents or URL content.
 func (c *Client) buildContent(prompt, filePath string) (string, error) {
 	if filePath == "" {
 		return prompt, nil
 	}
 
+	// Check if it's a URL
+	if strings.HasPrefix(filePath, "http://") || strings.HasPrefix(filePath, "https://") {
+		// Fetch web content
+		ctx := context.Background()
+		webOpts := &WebReaderOptions{
+			ReturnFormat: "markdown",
+		}
+		resp, err := c.FetchWebContent(ctx, filePath, webOpts)
+		if err != nil {
+			return "", fmt.Errorf("failed to fetch URL %s: %w", filePath, err)
+		}
+		return fmt.Sprintf("%s\n\n<web_content url=\"%s\" title=\"%s\">\n%s\n</web_content>",
+			prompt, filePath, resp.ReaderResult.Title, resp.ReaderResult.Content), nil
+	}
+
+	// Local file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %w", filePath, err)
