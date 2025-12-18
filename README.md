@@ -77,9 +77,11 @@ web_search:
 ```bash
 zai "Explain quantum computing"
 zai -f main.go "Explain this code"
+zai -f https://example.com "Summarize"   # -f supports URLs too!
 zai -v "What is 2+2?"                    # verbose with debug info
 zai --think "Analyze this problem"       # enable reasoning mode
 zai --json "What is 2+2?"               # output as JSON
+zai --search "What happened in AI today?" # web search augmented
 ```
 
 ### Piped Input
@@ -133,10 +135,18 @@ you> /search "golang patterns" -r oneMonth
 
 ### Image Generation
 ```bash
-zai image "a beautiful sunset over mountains"
-zai image "cyberpunk city at night" --size 1024x1024
-zai image "cute cat" --style cartoon
+zai image "a wizard"                        # AI-enhanced prompt + auto-save
+zai image "sunset" --size 1024x1024         # Custom size
+zai image "cat" --no-enhance                # Skip AI prompt enhancement
+zai image "logo" -o logo.png                # Custom output path
+zai image "art" --show                      # Open in viewer after generation
+zai image "product" --copy                  # Copy URL to clipboard (macOS)
 ```
+
+**Features:**
+- **AI Prompt Enhancement**: Simple prompts are automatically enhanced with professional photography/lighting/style details (disable with `--no-enhance`)
+- **Auto-save**: Images automatically saved to `zai-image-{timestamp}.png`
+- **Professional prompts**: Enhancement adds cinematic lighting, camera specs, composition, mood
 
 ### Model Management
 ```bash
@@ -160,10 +170,11 @@ zai history --json               # Output history as JSON
 ### Global Flags
 | Flag | Description |
 |------|-------------|
-| `-f, --file string` | Include file contents in prompt |
+| `-f, --file string` | Include file or URL contents in prompt |
 | `-v, --verbose` | Show debug info and token usage |
 | `--config string` | Custom config file path (default `~/.config/zai/config.yaml`) |
 | `--think` | Enable thinking/reasoning mode |
+| `--search` | Augment prompt with web search results |
 | `--json` | Output in JSON format (structured data with metadata) |
 | `-h, --help` | Help for zai |
 

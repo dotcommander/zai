@@ -7,11 +7,14 @@ CLI tool for chatting with Z.AI GLM models.
 ```bash
 go build -o bin/zai .           # Build
 ./bin/zai "prompt"              # One-shot
-./bin/zai chat                  # Interactive REPL
+./bin/zai chat                  # Interactive REPL (styled with lipgloss)
 echo "text" | ./bin/zai         # Stdin pipe
 ./bin/zai -f file.go "explain"  # With file context
+./bin/zai -f https://url "sum"  # -f supports URLs too
 ./bin/zai web <url>             # Fetch web content
 ./bin/zai search "query"        # Web search
+./bin/zai --search "news"       # Search-augmented generation
+./bin/zai image "wizard"        # AI-enhanced image generation
 ```
 
 ## Install Globally
@@ -87,6 +90,25 @@ URLs in prompts are automatically fetched and included:
 zai "Summarize https://example.com"  # Fetches and includes content
 ```
 
+### Search-Augmented Generation
+```bash
+zai --search "What's happening in AI today?"  # Searches web, adds context
+zai chat --search                              # Enable for entire chat session
+```
+
+### Image Generation
+```bash
+zai image "a wizard"              # AI-enhanced prompt + auto-download
+zai image "sunset" -s 1024x768    # Custom size
+zai image "cat" --no-enhance      # Skip prompt enhancement
+zai image "logo" -o output.png    # Custom filename
+```
+
+**Features:**
+- **AI prompt enhancement** (default on): Transforms simple prompts into professional image generation prompts with lighting, composition, style
+- **Auto-download**: Images saved to `zai-image-{timestamp}.png`
+- Combines original + enhanced prompt for best results
+
 ## Architecture
 
 ```
@@ -121,3 +143,7 @@ internal/
 - **Web Content Format**: Wrapped in `<web_content>` XML tags with metadata
 - **Web Search**: Queries `/paas/v4/web_search` API with caching and filtering
 - **Search Cache**: File-based with SHA256 keys and TTL expiration
+- **Search Augmentation**: `--search` flag prepends web results as `<web_search_results>` context
+- **File flag URLs**: `-f` detects http/https and routes to web reader
+- **Image Enhancement**: LLM transforms simple prompts using professional image engineering framework
+- **Chat TUI**: Styled with Charmbracelet lipgloss (colors, spinner, styled output)
