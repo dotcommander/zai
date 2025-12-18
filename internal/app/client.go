@@ -25,19 +25,19 @@ type ClientConfig struct {
 // DefaultChatOptions returns sensible defaults for CLI usage.
 func DefaultChatOptions() ChatOptions {
 	return ChatOptions{
-		Temperature:  float64Ptr(0.6),
-		MaxTokens:    intPtr(8192),
-		TopP:         float64Ptr(0.9),
-		WebEnabled:   boolPtr(true),
-		WebTimeout:   intPtr(20),
+		Temperature:  Float64Ptr(0.6),
+		MaxTokens:    IntPtr(8192),
+		TopP:         Float64Ptr(0.9),
+		WebEnabled:   BoolPtr(true),
+		WebTimeout:   IntPtr(20),
 		Think:        false, // Legacy field default
 	}
 }
 
-// Helper functions for creating pointers to literals
-func float64Ptr(v float64) *float64 { return &v }
-func intPtr(v int) *int { return &v }
-func boolPtr(v bool) *bool { return &v }
+// Helper functions for creating pointers to literals (exported for use in cmd package)
+func Float64Ptr(v float64) *float64 { return &v }
+func IntPtr(v int) *int             { return &v }
+func BoolPtr(v bool) *bool          { return &v }
 
 // Logger interface for output control (ISP compliance).
 type Logger interface {

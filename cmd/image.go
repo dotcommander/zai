@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,14 +17,16 @@ import (
 )
 
 var (
-	imagePrompt   string
-	imageQuality  string
-	imageSize     string
-	imageOutput   string
-	imageShow     bool
-	imageCopy     bool
-	imageModel    string
-	imageUserID   string
+	imagePrompt    string
+	imageQuality   string
+	imageSize      string
+	imageOutput    string
+	imageShow      bool
+	imageCopy      bool
+	imageModel     string
+	imageUserID    string
+	imageEnhance   bool
+	imageNoEnhance bool
 )
 
 var imageCmd = &cobra.Command{
@@ -34,7 +38,8 @@ Examples:
   zai image "a cat wearing sunglasses"
   zai image "sunset on mars" --quality hd --size 1024x1024
   zai image "abstract art" --output my-art.png
-  zai image "logo" --copy --size 512x512`,
+  zai image "logo" --copy --size 512x512
+  zai image "sunset" --no-enhance    # Skip prompt enhancement`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runImageGeneration(args[0])
@@ -58,12 +63,54 @@ func init() {
 	imageCmd.Flags().BoolVarP(&imageCopy, "copy", "c", false, "Copy image to clipboard (macOS only)")
 	imageCmd.Flags().StringVarP(&imageModel, "model", "m", "", "Override default image model")
 	imageCmd.Flags().StringVar(&imageUserID, "user-id", "", "User ID for analytics")
+	imageCmd.Flags().BoolVarP(&imageEnhance, "enhance", "e", true, "Enhance prompt with AI before generation")
+	imageCmd.Flags().BoolVar(&imageNoEnhance, "no-enhance", false, "Disable prompt enhancement")
 
 	// Add subcommands
 	imageCmd.AddCommand(imageListCmd)
 
 	// Register with root
 	rootCmd.AddCommand(imageCmd)
+}
+
+// shouldEnhancePrompt determines if prompt enhancement should be used.
+// --no-enhance explicitly disables, otherwise --enhance (default true) controls.
+func shouldEnhancePrompt() bool {
+	if imageNoEnhance {
+		return false
+	}
+	return imageEnhance
+}
+
+// enhanceImagePrompt uses the chat LLM to transform a simple description
+// into a professional, detailed image generation prompt.
+func enhanceImagePrompt(client *app.Client, prompt string) (string, error) {
+	systemPrompt := `You are an expert image prompt engineer. Transform simple descriptions into ultra-detailed, professional image generation prompts.
+
+Include relevant aspects from:
+- Photography: lens type, aperture, focal length, depth of field, exposure
+- Lighting: natural/studio, direction, quality, golden hour, rim light, volumetric
+- Style: photorealistic, cinematic, artistic, illustration, 3D render
+- Mood: atmosphere, emotion, color palette, tone
+- Technical: resolution (8K, 4K), detail level, sharpness, clarity
+- Composition: rule of thirds, leading lines, framing, perspective
+- Film/Camera: specific camera models, film stock, color grading
+
+Output ONLY the enhanced prompt, nothing else. Keep it under 500 characters.`
+
+	opts := app.ChatOptions{
+		Temperature: app.Float64Ptr(0.7),
+		MaxTokens:   app.IntPtr(200),
+		Context: []app.Message{
+			{Role: "system", Content: systemPrompt},
+		},
+	}
+
+	enhanced, err := client.Chat(context.Background(), "Enhance this image prompt: "+prompt, opts)
+	if err != nil {
+		return prompt, err // Fall back to original on error
+	}
+	return strings.TrimSpace(enhanced), nil
 }
 
 func runImageGeneration(prompt string) error {
@@ -85,9 +132,25 @@ func runImageGeneration(prompt string) error {
 		}
 	}
 
+	// Enhance prompt if enabled
+	finalPrompt := prompt
+	if shouldEnhancePrompt() {
+		fmt.Printf("🎨 Original: %s\n", prompt)
+		fmt.Printf("✨ Enhancing prompt...\n")
+		enhanced, err := enhanceImagePrompt(client, prompt)
+		if err != nil {
+			fmt.Printf("⚠️  Enhancement failed, using original: %v\n", err)
+		} else {
+			finalPrompt = enhanced
+			fmt.Printf("✨ Enhanced: %s\n", finalPrompt)
+		}
+	} else {
+		fmt.Printf("🎨 Generating image: %s\n", prompt)
+	}
+
 	// Generate image
-	fmt.Printf("🎨 Generating image: %s\n", prompt)
-	response, err := client.GenerateImage(context.Background(), prompt, opts)
+	fmt.Printf("\n🖼️  Generating image...\n")
+	response, err := client.GenerateImage(context.Background(), finalPrompt, opts)
 	if err != nil {
 		return fmt.Errorf("failed to generate image: %w", err)
 	}
@@ -103,17 +166,26 @@ func runImageGeneration(prompt string) error {
 
 	// Display basic info
 	fmt.Printf("\n✅ Image generated successfully!\n")
-	fmt.Printf("📐 Size: %dx%d\n", imageData.Width, imageData.Height)
+	if imageData.Width > 0 && imageData.Height > 0 {
+		fmt.Printf("📐 Size: %dx%d\n", imageData.Width, imageData.Height)
+	} else {
+		fmt.Printf("📐 Size: %s\n", imageSize) // Use the requested size
+	}
 	fmt.Printf("🔗 URL: %s\n", imageData.URL)
 	fmt.Printf("⏰ Expires: 30 days from now\n")
 
-	// Handle output options
-	if imageOutput != "" {
-		if err := saveImageToDisk(imageData.URL, imageOutput); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to save image: %v\n", err)
-		} else {
-			fmt.Printf("💾 Saved to: %s\n", imageOutput)
-		}
+	// Auto-save to current directory if no output specified
+	outputPath := imageOutput
+	if outputPath == "" {
+		// Generate filename from timestamp
+		timestamp := time.Now().Format("20060102-150405")
+		outputPath = fmt.Sprintf("zai-image-%s.png", timestamp)
+	}
+
+	if err := saveImageToDisk(imageData.URL, outputPath); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to save image: %v\n", err)
+	} else {
+		fmt.Printf("💾 Saved to: %s\n", outputPath)
 	}
 
 	if imageCopy {
@@ -168,19 +240,39 @@ func runImageModelList() error {
 
 // saveImageToDisk downloads an image from URL and saves to file
 func saveImageToDisk(url, filePath string) error {
-	// For now, just print info about the URL
-	// In a full implementation, we would download the image
-	// This requires additional dependencies like curl or a HTTP client
-
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
 	}
 
-	// Create a placeholder file with the URL
-	content := fmt.Sprintf("Image URL: %s\nGenerated: %s\n", url, time.Now().Format(time.RFC3339))
-	return os.WriteFile(filePath, []byte(content), 0644)
+	// Download the image
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to download image: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to download image: status %d", resp.StatusCode)
+	}
+
+	// Create output file
+	out, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer out.Close()
+
+	// Copy response body to file
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to write image: %w", err)
+	}
+
+	return nil
 }
 
 // copyToClipboard copies URL to clipboard (macOS only)
