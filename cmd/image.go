@@ -141,8 +141,9 @@ func runImageGeneration(prompt string) error {
 		if err != nil {
 			fmt.Printf("⚠️  Enhancement failed, using original: %v\n", err)
 		} else {
-			finalPrompt = enhanced
-			fmt.Printf("✨ Enhanced: %s\n", finalPrompt)
+			// Combine original + enhanced for best results
+			finalPrompt = prompt + ". " + enhanced
+			fmt.Printf("✨ Enhanced: %s\n", enhanced)
 		}
 	} else {
 		fmt.Printf("🎨 Generating image: %s\n", prompt)
