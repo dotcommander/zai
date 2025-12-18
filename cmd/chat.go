@@ -140,7 +140,7 @@ func printStyledHelp() {
 		{"context", "Show conversation context"},
 		{"clear", "Clear conversation and screen"},
 		{"search <query>", "Search the web"},
-		{"/search <query>", "Search the web (alt format)"},
+		{"web <url>", "Fetch and display web page"},
 		{"exit, quit", "Exit chat"},
 	}
 
@@ -161,9 +161,9 @@ func printStyledHelp() {
 	fmt.Println(dividerStyle.Render(strings.Repeat("─", 40)))
 	tips := []string{
 		"Previous messages are used as context",
-		"Search results are added to conversation",
-		"Use -f flag to include a file in context",
-		"Use -s flag to enable search augmentation",
+		"URLs in messages are auto-fetched",
+		"Web/search results are added to context",
+		"Use --search flag to auto-search every message",
 	}
 	for _, tip := range tips {
 		fmt.Println(dimStyle.Render("  - " + tip))
@@ -255,6 +255,67 @@ func runChatREPL() error {
 			conversationContext = append(conversationContext,
 				app.Message{Role: "user", Content: fmt.Sprintf("Search: %s", query)},
 				app.Message{Role: "assistant", Content: searchFormatted},
+			)
+			if len(conversationContext) > 20 {
+				conversationContext = conversationContext[2:]
+			}
+
+			sessionHistory = append(sessionHistory, input)
+			continue
+		}
+
+		// Check for web command
+		if strings.HasPrefix(input, "/web ") || strings.HasPrefix(input, "web ") {
+			url := strings.TrimSpace(input[len("/web "):])
+			if strings.HasPrefix(input, "web ") {
+				url = strings.TrimSpace(input[len("web "):])
+			}
+
+			if url == "" {
+				fmt.Println(errorStyle.Render("  Usage: /web <url>"))
+				fmt.Println()
+				continue
+			}
+
+			// Fetch web content with spinner
+			fmt.Println()
+			fmt.Println(infoStyle.Render("  Fetching: ") + searchResultLinkStyle.Render(url))
+
+			var stop atomic.Bool
+			go animateThinking(&stop)
+
+			webOpts := &app.WebReaderOptions{
+				ReturnFormat: "markdown",
+			}
+			resp, err := client.FetchWebContent(context.Background(), url, webOpts)
+			stop.Store(true)
+			time.Sleep(100 * time.Millisecond) // Let spinner clear
+
+			if err != nil {
+				fmt.Println(errorStyle.Render("  Error: ") + dimStyle.Render(err.Error()))
+				fmt.Println()
+				continue
+			}
+
+			// Display content
+			fmt.Println()
+			fmt.Println(sectionHeaderStyle.Render("  " + resp.ReaderResult.Title))
+			fmt.Println(searchResultLinkStyle.Render("  " + resp.ReaderResult.URL))
+			fmt.Println()
+
+			// Truncate content for display
+			content := resp.ReaderResult.Content
+			if len(content) > 2000 {
+				content = content[:2000] + "\n\n" + dimStyle.Render("[Content truncated - full content added to context]")
+			}
+			fmt.Println(dimStyle.Render(content))
+			fmt.Println()
+
+			// Add to conversation context
+			formattedContent := app.FormatWebContent(url, resp.ReaderResult.Title, resp.ReaderResult.Content)
+			conversationContext = append(conversationContext,
+				app.Message{Role: "user", Content: fmt.Sprintf("Fetched web page: %s", url)},
+				app.Message{Role: "assistant", Content: formattedContent},
 			)
 			if len(conversationContext) > 20 {
 				conversationContext = conversationContext[2:]
