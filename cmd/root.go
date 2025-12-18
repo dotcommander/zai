@@ -101,7 +101,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&filePath, "file", "f", "", "include file contents in prompt")
 	rootCmd.PersistentFlags().BoolVar(&think, "think", false, "enable thinking/reasoning mode")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output in JSON format")
-	rootCmd.PersistentFlags().BoolVarP(&search, "search", "s", false, "augment prompt with web search results")
+	rootCmd.PersistentFlags().BoolVar(&search, "search", false, "augment prompt with web search results")
 
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("file", rootCmd.PersistentFlags().Lookup("file"))
