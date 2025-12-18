@@ -10,9 +10,39 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"zai/internal/app"
+)
+
+// Help styles (reuse colors from chat.go where applicable)
+var (
+	helpTitleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FAFAFA")).
+			Background(lipgloss.Color("#7D56F4")).
+			Padding(0, 1)
+
+	helpSectionStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#7D56F4"))
+
+	helpCommandStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#73F59F"))
+
+	helpFlagStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00D4FF"))
+
+	helpDescStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#AAAAAA"))
+
+	helpExampleStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFD700")).
+				Italic(true)
+
+	helpDividerStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#444444"))
 )
 
 var (
@@ -96,6 +126,8 @@ func Execute() {
 }
 
 func init() {
+	rootCmd.SetHelpFunc(styledHelp)
+
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default $HOME/.config/zai/config.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().StringVarP(&filePath, "file", "f", "", "include file contents in prompt")
@@ -108,6 +140,68 @@ func init() {
 	_ = viper.BindPFlag("think", rootCmd.PersistentFlags().Lookup("think"))
 	_ = viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
 	_ = viper.BindPFlag("search", rootCmd.PersistentFlags().Lookup("search"))
+}
+
+// styledHelp displays the custom styled help output.
+func styledHelp(cmd *cobra.Command, args []string) {
+	// Title
+	fmt.Println()
+	fmt.Println(helpTitleStyle.Render(" ZAI ") + " " + helpDescStyle.Render("Chat with Z.AI models"))
+	fmt.Println()
+
+	// Examples section
+	fmt.Println(helpSectionStyle.Render("Examples"))
+	fmt.Println(helpDividerStyle.Render(strings.Repeat("-", 50)))
+	examples := []string{
+		`zai "Explain quantum computing"`,
+		`zai -f main.go "Review this code"`,
+		`zai --search "Latest AI news"`,
+		`echo "text" | zai "summarize"`,
+	}
+	for _, ex := range examples {
+		fmt.Printf("  %s\n", helpExampleStyle.Render(ex))
+	}
+	fmt.Println()
+
+	// Commands section
+	fmt.Println(helpSectionStyle.Render("Commands"))
+	fmt.Println(helpDividerStyle.Render(strings.Repeat("-", 50)))
+	commands := [][]string{
+		{"chat", "Interactive chat session (REPL)"},
+		{"search", "Search the web"},
+		{"web", "Fetch web content"},
+		{"image", "Generate images with AI enhancement"},
+		{"history", "View chat history"},
+		{"model", "Model management"},
+	}
+	for _, c := range commands {
+		fmt.Printf("  %s  %s\n",
+			helpCommandStyle.Render(fmt.Sprintf("%-10s", c[0])),
+			helpDescStyle.Render(c[1]))
+	}
+	fmt.Println()
+
+	// Flags section
+	fmt.Println(helpSectionStyle.Render("Flags"))
+	fmt.Println(helpDividerStyle.Render(strings.Repeat("-", 50)))
+	flags := [][]string{
+		{"-f, --file <path>", "Include file or URL in prompt"},
+		{"--search", "Augment with web search results"},
+		{"--think", "Enable reasoning mode"},
+		{"--json", "Output as JSON"},
+		{"-v, --verbose", "Show debug info"},
+		{"-h, --help", "Show this help"},
+	}
+	for _, f := range flags {
+		fmt.Printf("  %s  %s\n",
+			helpFlagStyle.Render(fmt.Sprintf("%-18s", f[0])),
+			helpDescStyle.Render(f[1]))
+	}
+	fmt.Println()
+
+	// Footer
+	fmt.Println(helpDescStyle.Render("Use \"zai <command> --help\" for command details"))
+	fmt.Println()
 }
 
 func initConfig() error {
