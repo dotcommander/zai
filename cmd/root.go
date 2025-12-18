@@ -16,11 +16,12 @@ import (
 )
 
 var (
-	cfgFile  string
-	verbose  bool
-	filePath string
-	think    bool
+	cfgFile    string
+	verbose    bool
+	filePath   string
+	think      bool
 	jsonOutput bool
+	search     bool
 )
 
 var rootCmd = &cobra.Command{
@@ -100,11 +101,13 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&filePath, "file", "f", "", "include file contents in prompt")
 	rootCmd.PersistentFlags().BoolVar(&think, "think", false, "enable thinking/reasoning mode")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output in JSON format")
+	rootCmd.PersistentFlags().BoolVarP(&search, "search", "s", false, "augment prompt with web search results")
 
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("file", rootCmd.PersistentFlags().Lookup("file"))
 	_ = viper.BindPFlag("think", rootCmd.PersistentFlags().Lookup("think"))
 	_ = viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
+	_ = viper.BindPFlag("search", rootCmd.PersistentFlags().Lookup("search"))
 }
 
 func initConfig() error {
@@ -179,9 +182,34 @@ func runOneShot(prompt string) error {
 	opts.Think = viper.GetBool("think")
 
 	if viper.GetBool("verbose") {
-		fmt.Fprintf(os.Stderr, "🤖 Prompt: %s\n", prompt)
+		fmt.Fprintf(os.Stderr, "Prompt: %s\n", prompt)
 		if opts.FilePath != "" {
-			fmt.Fprintf(os.Stderr, "📄 File: %s\n", opts.FilePath)
+			fmt.Fprintf(os.Stderr, "File: %s\n", opts.FilePath)
+		}
+	}
+
+	// Augment prompt with web search results if --search flag is set
+	if viper.GetBool("search") {
+		if viper.GetBool("verbose") {
+			fmt.Fprintf(os.Stderr, "Searching web for: %s\n", prompt)
+		}
+
+		searchOpts := app.SearchOptions{
+			Count:         5,
+			RecencyFilter: "oneWeek",
+		}
+		results, err := client.SearchWeb(context.Background(), prompt, searchOpts)
+		if err != nil {
+			if viper.GetBool("verbose") {
+				fmt.Fprintf(os.Stderr, "Search failed (continuing without): %v\n", err)
+			}
+		} else if len(results.SearchResult) > 0 {
+			searchContext := app.FormatSearchForContext(results.SearchResult)
+			prompt = searchContext + "\n\nUser question: " + prompt
+
+			if viper.GetBool("verbose") {
+				fmt.Fprintf(os.Stderr, "Found %d search results\n", len(results.SearchResult))
+			}
 		}
 	}
 
@@ -198,6 +226,7 @@ func runOneShot(prompt string) error {
 			"model":       viper.GetString("api.model"),
 			"file":        opts.FilePath,
 			"think":       opts.Think,
+			"search":      viper.GetBool("search"),
 			"timestamp":   time.Now().Format(time.RFC3339),
 		}
 

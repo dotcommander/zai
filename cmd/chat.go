@@ -40,17 +40,21 @@ func runChatREPL() error {
 	baseOpts := app.DefaultChatOptions()
 	baseOpts.FilePath = viper.GetString("file")
 	baseOpts.Think = viper.GetBool("think")
+	searchEnabled := viper.GetBool("search")
 
 	// Track conversation context
 	var conversationContext []app.Message
 
 	// Show welcome
-	fmt.Println("🤖 Z.AI Interactive Chat")
+	fmt.Println("Z.AI Interactive Chat")
 	fmt.Println("Commands: help, history, clear, search <query>, exit")
 	if baseOpts.FilePath != "" {
-		fmt.Printf("📄 File loaded: %s\n", baseOpts.FilePath)
+		fmt.Printf("File loaded: %s\n", baseOpts.FilePath)
 	}
-	fmt.Println(strings.Repeat("─", 40))
+	if searchEnabled {
+		fmt.Println("Search augmentation: enabled (answers include web search)")
+	}
+	fmt.Println(strings.Repeat("-", 40))
 
 	scanner := bufio.NewScanner(os.Stdin)
 	var sessionHistory []string
@@ -158,8 +162,22 @@ func runChatREPL() error {
 			opts.FilePath = ""
 		}
 
+		// Augment with web search if enabled
+		messageToSend := input
+		if searchEnabled {
+			searchOpts := app.SearchOptions{
+				Count:         5,
+				RecencyFilter: "oneWeek",
+			}
+			results, err := client.SearchWeb(context.Background(), input, searchOpts)
+			if err == nil && len(results.SearchResult) > 0 {
+				searchContext := app.FormatSearchForContext(results.SearchResult)
+				messageToSend = searchContext + "\n\nUser question: " + input
+			}
+		}
+
 		// Send to API
-		response, err := client.Chat(context.Background(), input, opts)
+		response, err := client.Chat(context.Background(), messageToSend, opts)
 		if err != nil {
 			fmt.Printf("❌ Error: %v\n", err)
 			continue
@@ -235,6 +253,7 @@ Tips:
   - Previous messages are used as context
   - Search results are automatically added to conversation
   - Use -f flag to include a file in context
+  - Use -s flag to enable search augmentation (searches before every message)
   - Arrow keys for input history (if supported)
 `)
 }

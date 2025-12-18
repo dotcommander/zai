@@ -221,3 +221,38 @@ func DetectSearchIntent(text string) (hasIntent bool, query string) {
 	}
 	return false, ""
 }
+
+// FormatSearchForContext formats search results as XML context for prompt augmentation.
+// This is used by the --search flag to prepend search results to prompts.
+func FormatSearchForContext(results []SearchResult) string {
+	if len(results) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<web_search_results>\n")
+
+	for _, result := range results {
+		sb.WriteString("<result>\n")
+		sb.WriteString(fmt.Sprintf("<title>%s</title>\n", result.Title))
+		sb.WriteString(fmt.Sprintf("<url>%s</url>\n", result.Link))
+
+		if result.Content != "" {
+			// Truncate very long content to keep context manageable
+			content := result.Content
+			if len(content) > 1000 {
+				content = content[:1000] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("<content>%s</content>\n", content))
+		}
+
+		if result.PublishDate != "" {
+			sb.WriteString(fmt.Sprintf("<date>%s</date>\n", result.PublishDate))
+		}
+
+		sb.WriteString("</result>\n")
+	}
+
+	sb.WriteString("</web_search_results>")
+	return sb.String()
+}
