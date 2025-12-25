@@ -82,31 +82,80 @@ type HistoryStore interface {
 	GetRecent(limit int) ([]HistoryEntry, error)
 }
 
+// HTTPDoer interface for HTTP operations (DIP compliance, enables testing).
+type HTTPDoer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// FileReader interface for file operations (DIP compliance, enables testing).
+type FileReader interface {
+	ReadFile(name string) ([]byte, error)
+}
+
+// OSFileReader implements FileReader using os.ReadFile.
+type OSFileReader struct{}
+
+// ReadFile reads a file from the filesystem.
+func (r OSFileReader) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
 // Client implements ChatClient with Z.AI API.
 type Client struct {
 	config     ClientConfig
-	httpClient *http.Client
+	httpClient HTTPDoer
 	logger     Logger
 	history    HistoryStore
+	fileReader FileReader
+}
+
+// ClientDeps holds optional dependencies for NewClient.
+// Zero values mean "use default implementation".
+type ClientDeps struct {
+	HTTPClient HTTPDoer
+	FileReader FileReader
 }
 
 // NewClient creates a client with injected dependencies.
-func NewClient(cfg ClientConfig, logger Logger, history HistoryStore) *Client {
+// If deps is nil or fields are nil, default implementations are used.
+func NewClient(cfg ClientConfig, logger Logger, history HistoryStore, httpClient HTTPDoer) *Client {
+	return NewClientWithDeps(cfg, logger, history, &ClientDeps{HTTPClient: httpClient})
+}
+
+// NewClientWithDeps creates a client with full dependency injection.
+// Allows injection of all dependencies for testing.
+func NewClientWithDeps(cfg ClientConfig, logger Logger, history HistoryStore, deps *ClientDeps) *Client {
 	timeout := cfg.Timeout
 	if timeout == 0 {
 		timeout = 60 * time.Second
 	}
 
+	var httpClient HTTPDoer
+	var fileReader FileReader
+
+	if deps != nil {
+		httpClient = deps.HTTPClient
+		fileReader = deps.FileReader
+	}
+
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: timeout}
+	}
+	if fileReader == nil {
+		fileReader = OSFileReader{}
+	}
+
 	return &Client{
 		config:     cfg,
-		httpClient: &http.Client{Timeout: timeout},
+		httpClient: httpClient,
 		logger:     logger,
 		history:    history,
+		fileReader: fileReader,
 	}
 }
 
 // Chat sends a prompt and returns the response.
-// Single method handles all cases: simple, with file, with context, with web content.
+// Orchestrates content building, URL enrichment, and request execution.
 func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (string, error) {
 	if c.config.APIKey == "" {
 		return "", fmt.Errorf("API key is not configured")
@@ -118,55 +167,11 @@ func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (str
 		return "", err
 	}
 
-	// Check for URLs and fetch web content if enabled
-	webEnabled := false
-	if opts.WebEnabled != nil {
-		webEnabled = *opts.WebEnabled
-	} else {
-		// Check configuration for default
-		// For now, default to true if web reader is configured
-		webEnabled = true
-	}
+	// Enrich content with web URLs if enabled
+	content = c.enrichWithURLContent(ctx, prompt, content, opts)
 
-	if webEnabled {
-		urls := ExtractURLs(prompt)
-		if len(urls) > 0 {
-			webCtx := ctx
-			webOpts := &WebReaderOptions{
-				Timeout:       opts.WebTimeout,
-				ReturnFormat:  "markdown", // Default format for chat
-			}
-			// Set default values
-			trueVal := true
-			falseVal := false
-			webOpts.RetainImages = &trueVal
-			webOpts.NoCache = &falseVal
-			webOpts.NoGFM = &falseVal
-			webOpts.KeepImgDataURL = &falseVal
-			webOpts.WithImagesSummary = &falseVal
-			webOpts.WithLinksSummary = &falseVal
-
-			for _, url := range urls {
-				webResp, err := c.FetchWebContent(webCtx, url, webOpts)
-				if err != nil {
-					c.logger.Warn("Failed to fetch web content from %s: %v", url, err)
-					continue
-				}
-				// Append formatted web content to the prompt
-				content += "\n\n" + FormatWebContent(url, webResp.ReaderResult.Title, webResp.ReaderResult.Content)
-			}
-		}
-	}
-
-	// Build messages array
-	messages := c.buildMessages(content, opts)
-
-	// Add context messages if provided (legacy support)
-	if len(opts.Context) > 0 {
-		// Prepend context messages
-		allMessages := append(opts.Context, messages...)
-		messages = allMessages
-	}
+	// Build messages array with context
+	messages := c.buildMessagesWithContext(content, opts)
 
 	// Handle legacy Think field
 	if opts.Think && opts.Thinking == nil {
@@ -180,14 +185,80 @@ func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (str
 	}
 
 	// Save to history (non-blocking, log errors)
-	if c.history != nil {
-		entry := NewChatHistoryEntry(time.Now(), prompt, response, c.config.Model, usage)
-		if err := c.history.Save(entry); err != nil {
-			c.logger.Warn("Failed to save to history: %v", err)
-		}
-	}
+	c.saveToHistory(prompt, response, usage)
 
 	return response, nil
+}
+
+// enrichWithURLContent fetches web content for URLs in the prompt if web is enabled.
+func (c *Client) enrichWithURLContent(ctx context.Context, prompt, content string, opts ChatOptions) string {
+	if !c.isWebEnabled(opts) {
+		return content
+	}
+
+	urls := ExtractURLs(prompt)
+	if len(urls) == 0 {
+		return content
+	}
+
+	webOpts := c.defaultWebReaderOptions(opts.WebTimeout)
+	for _, url := range urls {
+		webResp, err := c.FetchWebContent(ctx, url, webOpts)
+		if err != nil {
+			c.logger.Warn("Failed to fetch web content from %s: %v", url, err)
+			continue
+		}
+		content += "\n\n" + FormatWebContent(url, webResp.ReaderResult.Title, webResp.ReaderResult.Content)
+	}
+
+	return content
+}
+
+// isWebEnabled checks if web content fetching is enabled.
+func (c *Client) isWebEnabled(opts ChatOptions) bool {
+	if opts.WebEnabled != nil {
+		return *opts.WebEnabled
+	}
+	return true // Default to enabled
+}
+
+// defaultWebReaderOptions creates default options for web content fetching.
+func (c *Client) defaultWebReaderOptions(timeout *int) *WebReaderOptions {
+	trueVal := true
+	falseVal := false
+	return &WebReaderOptions{
+		Timeout:          timeout,
+		ReturnFormat:     "markdown",
+		RetainImages:     &trueVal,
+		NoCache:          &falseVal,
+		NoGFM:            &falseVal,
+		KeepImgDataURL:   &falseVal,
+		WithImagesSummary: &falseVal,
+		WithLinksSummary:  &falseVal,
+	}
+}
+
+// buildMessagesWithContext constructs messages array including conversation context.
+func (c *Client) buildMessagesWithContext(content string, opts ChatOptions) []Message {
+	messages := c.buildMessages(content, opts)
+
+	// Prepend context messages if provided
+	if len(opts.Context) > 0 {
+		messages = append(opts.Context, messages...)
+	}
+
+	return messages
+}
+
+// saveToHistory persists the chat exchange to history storage.
+func (c *Client) saveToHistory(prompt, response string, usage Usage) {
+	if c.history == nil {
+		return
+	}
+	entry := NewChatHistoryEntry(time.Now(), prompt, response, c.config.Model, usage)
+	if err := c.history.Save(entry); err != nil {
+		c.logger.Warn("Failed to save to history: %v", err)
+	}
 }
 
 // buildContent combines prompt with optional file contents or URL content.
@@ -212,7 +283,7 @@ func (c *Client) buildContent(prompt, filePath string) (string, error) {
 	}
 
 	// Local file
-	data, err := os.ReadFile(filePath)
+	data, err := c.fileReader.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %w", filePath, err)
 	}

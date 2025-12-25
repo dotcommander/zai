@@ -48,10 +48,7 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("API key required: set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
 	}
 
-	// Create logger
-	logger := &app.StderrLogger{Verbose: viper.GetBool("verbose")}
-
-	// Create client
+	// Create client using factory with custom timeout (no history needed)
 	clientConfig := app.ClientConfig{
 		APIKey:  viper.GetString("api.key"),
 		BaseURL: viper.GetString("api.base_url"),
@@ -59,8 +56,8 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		Verbose: viper.GetBool("verbose"),
 		Timeout: time.Duration(webTimeout) * time.Second,
 	}
-
-	client := app.NewClient(clientConfig, logger, nil)
+	logger := &app.StderrLogger{Verbose: clientConfig.Verbose}
+	client := app.NewClient(clientConfig, logger, nil, nil)
 
 	// Build web reader options
 	opts := &app.WebReaderOptions{
