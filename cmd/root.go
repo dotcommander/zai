@@ -10,41 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"zai/internal/app"
 )
 
-// Help styles (reuse colors from chat.go where applicable)
-var (
-	helpTitleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
-			Padding(0, 1)
-
-	helpSectionStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("#7D56F4"))
-
-	helpCommandStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#73F59F"))
-
-	helpFlagStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00D4FF"))
-
-	helpDescStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#AAAAAA"))
-
-	helpExampleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFD700")).
-				Italic(true)
-
-	helpDividerStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#444444"))
-)
-
+// Flag variables for Cobra binding (required for PersistentFlags).
 var (
 	cfgFile    string
 	verbose    bool
@@ -53,6 +24,27 @@ var (
 	jsonOutput bool
 	search     bool
 )
+
+// RunConfig holds runtime configuration collected from flags and config file.
+// Passed to functions instead of accessing globals directly.
+type RunConfig struct {
+	FilePath   string
+	Think      bool
+	JSONOutput bool
+	Search     bool
+	Verbose    bool
+}
+
+// NewRunConfig creates RunConfig from viper settings (collected after flag parsing).
+func NewRunConfig() RunConfig {
+	return RunConfig{
+		FilePath:   viper.GetString("file"),
+		Think:      viper.GetBool("think"),
+		JSONOutput: viper.GetBool("json"),
+		Search:     viper.GetBool("search"),
+		Verbose:    viper.GetBool("verbose"),
+	}
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "zai [prompt]",
@@ -146,12 +138,12 @@ func init() {
 func styledHelp(cmd *cobra.Command, args []string) {
 	// Title
 	fmt.Println()
-	fmt.Println(helpTitleStyle.Render(" ZAI ") + " " + helpDescStyle.Render("Chat with Z.AI models"))
+	fmt.Println(theme.Title.Render(" ZAI ") + " " + theme.Description.Render("Chat with Z.AI models"))
 	fmt.Println()
 
 	// Examples section
-	fmt.Println(helpSectionStyle.Render("Examples"))
-	fmt.Println(helpDividerStyle.Render(strings.Repeat("-", 50)))
+	fmt.Println(theme.Section.Render("Examples"))
+	fmt.Println(theme.Divider.Render(strings.Repeat("-", 50)))
 	examples := []string{
 		`zai "Explain quantum computing"`,
 		`zai -f main.go "Review this code"`,
@@ -159,13 +151,13 @@ func styledHelp(cmd *cobra.Command, args []string) {
 		`echo "text" | zai "summarize"`,
 	}
 	for _, ex := range examples {
-		fmt.Printf("  %s\n", helpExampleStyle.Render(ex))
+		fmt.Printf("  %s\n", theme.Example.Render(ex))
 	}
 	fmt.Println()
 
 	// Commands section
-	fmt.Println(helpSectionStyle.Render("Commands"))
-	fmt.Println(helpDividerStyle.Render(strings.Repeat("-", 50)))
+	fmt.Println(theme.Section.Render("Commands"))
+	fmt.Println(theme.Divider.Render(strings.Repeat("-", 50)))
 	commands := [][]string{
 		{"chat", "Interactive chat session (REPL)"},
 		{"search", "Search the web"},
@@ -176,14 +168,14 @@ func styledHelp(cmd *cobra.Command, args []string) {
 	}
 	for _, c := range commands {
 		fmt.Printf("  %s  %s\n",
-			helpCommandStyle.Render(fmt.Sprintf("%-10s", c[0])),
-			helpDescStyle.Render(c[1]))
+			theme.Command.Render(fmt.Sprintf("%-10s", c[0])),
+			theme.Description.Render(c[1]))
 	}
 	fmt.Println()
 
 	// Flags section
-	fmt.Println(helpSectionStyle.Render("Flags"))
-	fmt.Println(helpDividerStyle.Render(strings.Repeat("-", 50)))
+	fmt.Println(theme.Section.Render("Flags"))
+	fmt.Println(theme.Divider.Render(strings.Repeat("-", 50)))
 	flags := [][]string{
 		{"-f, --file <path>", "Include file or URL in prompt"},
 		{"--search", "Augment with web search results"},
@@ -194,13 +186,13 @@ func styledHelp(cmd *cobra.Command, args []string) {
 	}
 	for _, f := range flags {
 		fmt.Printf("  %s  %s\n",
-			helpFlagStyle.Render(fmt.Sprintf("%-18s", f[0])),
-			helpDescStyle.Render(f[1]))
+			theme.Flag.Render(fmt.Sprintf("%-18s", f[0])),
+			theme.Description.Render(f[1]))
 	}
 	fmt.Println()
 
 	// Footer
-	fmt.Println(helpDescStyle.Render("Use \"zai <command> --help\" for command details"))
+	fmt.Println(theme.Description.Render("Use \"zai <command> --help\" for command details"))
 	fmt.Println()
 }
 
@@ -246,11 +238,28 @@ func buildClientConfig() app.ClientConfig {
 }
 
 // newClient creates a fully configured client with dependencies.
+// Uses default http.Client by passing nil for httpClient.
 func newClient() *app.Client {
 	cfg := buildClientConfig()
 	logger := &app.StderrLogger{Verbose: cfg.Verbose}
 	history := app.NewFileHistoryStore("")
-	return app.NewClient(cfg, logger, history)
+	return app.NewClient(cfg, logger, history, nil)
+}
+
+// newClientWithoutHistory creates a client without history storage.
+// Used for commands that don't need history (e.g., web fetch).
+func newClientWithoutHistory() *app.Client {
+	cfg := buildClientConfig()
+	logger := &app.StderrLogger{Verbose: cfg.Verbose}
+	return app.NewClient(cfg, logger, nil, nil)
+}
+
+// newClientWithConfig creates a client with custom config.
+// Used when command-specific config overrides are needed.
+func newClientWithConfig(cfg app.ClientConfig) *app.Client {
+	logger := &app.StderrLogger{Verbose: cfg.Verbose}
+	history := app.NewFileHistoryStore("")
+	return app.NewClient(cfg, logger, history, nil)
 }
 
 // hasStdinData detects if stdin has piped/redirected data.
@@ -270,12 +279,13 @@ func readStdin() (string, error) {
 
 // runOneShot executes a single prompt and exits.
 func runOneShot(prompt string) error {
+	cfg := NewRunConfig()
 	client := newClient()
 	opts := app.DefaultChatOptions()
-	opts.FilePath = viper.GetString("file")
-	opts.Think = viper.GetBool("think")
+	opts.FilePath = cfg.FilePath
+	opts.Think = cfg.Think
 
-	if viper.GetBool("verbose") {
+	if cfg.Verbose {
 		fmt.Fprintf(os.Stderr, "Prompt: %s\n", prompt)
 		if opts.FilePath != "" {
 			fmt.Fprintf(os.Stderr, "File: %s\n", opts.FilePath)
@@ -283,8 +293,8 @@ func runOneShot(prompt string) error {
 	}
 
 	// Augment prompt with web search results if --search flag is set
-	if viper.GetBool("search") {
-		if viper.GetBool("verbose") {
+	if cfg.Search {
+		if cfg.Verbose {
 			fmt.Fprintf(os.Stderr, "Searching web for: %s\n", prompt)
 		}
 
@@ -294,14 +304,14 @@ func runOneShot(prompt string) error {
 		}
 		results, err := client.SearchWeb(context.Background(), prompt, searchOpts)
 		if err != nil {
-			if viper.GetBool("verbose") {
+			if cfg.Verbose {
 				fmt.Fprintf(os.Stderr, "Search failed (continuing without): %v\n", err)
 			}
 		} else if len(results.SearchResult) > 0 {
 			searchContext := app.FormatSearchForContext(results.SearchResult)
 			prompt = searchContext + "\n\nUser question: " + prompt
 
-			if viper.GetBool("verbose") {
+			if cfg.Verbose {
 				fmt.Fprintf(os.Stderr, "Found %d search results\n", len(results.SearchResult))
 			}
 		}
@@ -312,7 +322,7 @@ func runOneShot(prompt string) error {
 		return fmt.Errorf("failed to get response: %w", err)
 	}
 
-	if viper.GetBool("json") {
+	if cfg.JSONOutput {
 		// Create structured JSON output
 		output := map[string]interface{}{
 			"prompt":      prompt,
@@ -320,7 +330,7 @@ func runOneShot(prompt string) error {
 			"model":       viper.GetString("api.model"),
 			"file":        opts.FilePath,
 			"think":       opts.Think,
-			"search":      viper.GetBool("search"),
+			"search":      cfg.Search,
 			"timestamp":   time.Now().Format(time.RFC3339),
 		}
 

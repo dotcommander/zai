@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strconv"
@@ -11,67 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"zai/internal/app"
-)
-
-// Colors
-var (
-	primaryColor = lipgloss.Color("#7D56F4")
-	successColor = lipgloss.Color("#73F59F")
-	errorColor   = lipgloss.Color("#FF6B6B")
-	subtleColor  = lipgloss.Color("#626262")
-	accentColor  = lipgloss.Color("#00D4FF")
-)
-
-// Styles
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(primaryColor).
-			Padding(0, 1)
-
-	promptStyle = lipgloss.NewStyle().
-			Foreground(successColor).
-			Bold(true)
-
-	aiLabelStyle = lipgloss.NewStyle().
-			Foreground(primaryColor).
-			Bold(true)
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(errorColor).
-			Bold(true)
-
-	helpStyle = lipgloss.NewStyle().
-			Foreground(subtleColor).
-			Italic(true)
-
-	infoStyle = lipgloss.NewStyle().
-			Foreground(accentColor)
-
-	dimStyle = lipgloss.NewStyle().
-			Foreground(subtleColor)
-
-	dividerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#444444"))
-
-	searchResultTitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FAFAFA")).
-				Bold(true)
-
-	searchResultLinkStyle = lipgloss.NewStyle().
-				Foreground(accentColor)
-
-	searchResultDateStyle = lipgloss.NewStyle().
-				Foreground(subtleColor)
-
-	sectionHeaderStyle = lipgloss.NewStyle().
-				Foreground(primaryColor).
-				Bold(true)
 )
 
 var chatCmd = &cobra.Command{
@@ -94,42 +37,46 @@ func init() {
 }
 
 // animateThinking displays an animated spinner while waiting for API response.
-func animateThinking(stop *atomic.Bool) {
+// Accepts io.Writer for testability (pass nil to use os.Stdout).
+func animateThinking(w io.Writer, stop *atomic.Bool) {
+	if w == nil {
+		w = os.Stdout
+	}
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	style := lipgloss.NewStyle().Foreground(primaryColor)
+	spinnerStyle := theme.SpinnerStyle()
 	i := 0
 	for !stop.Load() {
-		fmt.Printf("\r%s %s", style.Render(frames[i%len(frames)]), dimStyle.Render("Thinking..."))
+		fmt.Fprintf(w, "\r%s %s", spinnerStyle.Render(frames[i%len(frames)]), theme.Dim.Render("Thinking..."))
 		time.Sleep(80 * time.Millisecond)
 		i++
 	}
-	fmt.Print("\r\033[K") // Clear line
+	fmt.Fprint(w, "\r\033[K") // Clear line
 }
 
 // printWelcomeBanner displays the styled welcome message.
 func printWelcomeBanner(filePath string, searchEnabled bool) {
 	fmt.Println()
-	fmt.Println(titleStyle.Render(" Z.AI Chat "))
+	fmt.Println(theme.Title.Render(" Z.AI Chat "))
 	fmt.Println()
 
 	if filePath != "" {
-		fmt.Println(infoStyle.Render("  File: ") + dimStyle.Render(filePath))
+		fmt.Println(theme.Info.Render("  File: ") + theme.Dim.Render(filePath))
 	}
 	if searchEnabled {
-		fmt.Println(infoStyle.Render("  Search: ") + dimStyle.Render("enabled (answers include web search)"))
+		fmt.Println(theme.Info.Render("  Search: ") + theme.Dim.Render("enabled (answers include web search)"))
 	}
 
 	fmt.Println()
-	fmt.Println(helpStyle.Render("  Commands: help, history, clear, search <query>, exit"))
-	fmt.Println(dividerStyle.Render(strings.Repeat("─", 50)))
+	fmt.Println(theme.HelpText.Render("  Commands: help, history, clear, search <query>, exit"))
+	fmt.Println(theme.Divider.Render(strings.Repeat("─", 50)))
 	fmt.Println()
 }
 
 // printStyledHelp displays the help text with styling.
 func printStyledHelp() {
 	fmt.Println()
-	fmt.Println(sectionHeaderStyle.Render("Commands"))
-	fmt.Println(dividerStyle.Render(strings.Repeat("─", 40)))
+	fmt.Println(theme.Section.Render("Commands"))
+	fmt.Println(theme.Divider.Render(strings.Repeat("─", 40)))
 
 	commands := []struct {
 		cmd  string
@@ -146,19 +93,19 @@ func printStyledHelp() {
 
 	for _, c := range commands {
 		fmt.Printf("  %s  %s\n",
-			infoStyle.Render(fmt.Sprintf("%-16s", c.cmd)),
-			dimStyle.Render(c.desc))
+			theme.Info.Render(fmt.Sprintf("%-16s", c.cmd)),
+			theme.Dim.Render(c.desc))
 	}
 
 	fmt.Println()
-	fmt.Println(sectionHeaderStyle.Render("Search Options"))
-	fmt.Println(dividerStyle.Render(strings.Repeat("─", 40)))
-	fmt.Println(dimStyle.Render(`  search "golang" -c 5 -r oneWeek
+	fmt.Println(theme.Section.Render("Search Options"))
+	fmt.Println(theme.Divider.Render(strings.Repeat("─", 40)))
+	fmt.Println(theme.Dim.Render(`  search "golang" -c 5 -r oneWeek
   /search "AI news" -d github.com`))
 
 	fmt.Println()
-	fmt.Println(sectionHeaderStyle.Render("Tips"))
-	fmt.Println(dividerStyle.Render(strings.Repeat("─", 40)))
+	fmt.Println(theme.Section.Render("Tips"))
+	fmt.Println(theme.Divider.Render(strings.Repeat("─", 40)))
 	tips := []string{
 		"Previous messages are used as context",
 		"URLs in messages are auto-fetched",
@@ -166,7 +113,7 @@ func printStyledHelp() {
 		"Use --search flag to auto-search every message",
 	}
 	for _, tip := range tips {
-		fmt.Println(dimStyle.Render("  - " + tip))
+		fmt.Println(theme.Dim.Render("  - " + tip))
 	}
 	fmt.Println()
 }
@@ -189,7 +136,7 @@ func runChatREPL() error {
 	var sessionHistory []string
 
 	for {
-		fmt.Print(promptStyle.Render("you> "))
+		fmt.Print(theme.Prompt.Render("you> "))
 		if !scanner.Scan() {
 			break
 		}
@@ -211,10 +158,10 @@ func runChatREPL() error {
 
 			// Perform search with spinner
 			fmt.Println()
-			fmt.Println(infoStyle.Render("  Searching: ") + dimStyle.Render(query))
+			fmt.Println(theme.Info.Render("  Searching: ") + theme.Dim.Render(query))
 
 			var stop atomic.Bool
-			go animateThinking(&stop)
+			go animateThinking(nil, &stop)
 
 			start := time.Now()
 			resp, err := client.SearchWeb(context.Background(), query, opts)
@@ -222,30 +169,30 @@ func runChatREPL() error {
 			time.Sleep(100 * time.Millisecond) // Let spinner clear
 
 			if err != nil {
-				fmt.Println(errorStyle.Render("  Error: ") + dimStyle.Render(err.Error()))
+				fmt.Println(theme.ErrorText.Render("  Error: ") + theme.Dim.Render(err.Error()))
 				fmt.Println()
 				continue
 			}
 
 			duration := time.Since(start)
-			fmt.Println(dimStyle.Render(fmt.Sprintf("  Found %d results in %v", len(resp.SearchResult), duration.Round(time.Millisecond))))
+			fmt.Println(theme.Dim.Render(fmt.Sprintf("  Found %d results in %v", len(resp.SearchResult), duration.Round(time.Millisecond))))
 			fmt.Println()
 
 			// Format and display results
 			for i, result := range resp.SearchResult {
 				fmt.Printf("  %s %s\n",
-					dimStyle.Render(fmt.Sprintf("%d.", i+1)),
-					searchResultTitleStyle.Render(result.Title))
-				fmt.Printf("     %s\n", searchResultLinkStyle.Render(result.Link))
+					theme.Dim.Render(fmt.Sprintf("%d.", i+1)),
+					theme.ResultTitle.Render(result.Title))
+				fmt.Printf("     %s\n", theme.ResultLink.Render(result.Link))
 				if result.PublishDate != "" {
-					fmt.Printf("     %s\n", searchResultDateStyle.Render(result.PublishDate))
+					fmt.Printf("     %s\n", theme.ResultDate.Render(result.PublishDate))
 				}
 				if result.Content != "" {
 					content := result.Content
 					if len(content) > 200 {
 						content = content[:200] + "..."
 					}
-					fmt.Printf("     %s\n", dimStyle.Render(content))
+					fmt.Printf("     %s\n", theme.Dim.Render(content))
 				}
 				fmt.Println()
 			}
@@ -272,17 +219,17 @@ func runChatREPL() error {
 			}
 
 			if url == "" {
-				fmt.Println(errorStyle.Render("  Usage: /web <url>"))
+				fmt.Println(theme.ErrorText.Render("  Usage: /web <url>"))
 				fmt.Println()
 				continue
 			}
 
 			// Fetch web content with spinner
 			fmt.Println()
-			fmt.Println(infoStyle.Render("  Fetching: ") + searchResultLinkStyle.Render(url))
+			fmt.Println(theme.Info.Render("  Fetching: ") + theme.ResultLink.Render(url))
 
 			var stop atomic.Bool
-			go animateThinking(&stop)
+			go animateThinking(nil, &stop)
 
 			webOpts := &app.WebReaderOptions{
 				ReturnFormat: "markdown",
@@ -292,23 +239,23 @@ func runChatREPL() error {
 			time.Sleep(100 * time.Millisecond) // Let spinner clear
 
 			if err != nil {
-				fmt.Println(errorStyle.Render("  Error: ") + dimStyle.Render(err.Error()))
+				fmt.Println(theme.ErrorText.Render("  Error: ") + theme.Dim.Render(err.Error()))
 				fmt.Println()
 				continue
 			}
 
 			// Display content
 			fmt.Println()
-			fmt.Println(sectionHeaderStyle.Render("  " + resp.ReaderResult.Title))
-			fmt.Println(searchResultLinkStyle.Render("  " + resp.ReaderResult.URL))
+			fmt.Println(theme.Section.Render("  " + resp.ReaderResult.Title))
+			fmt.Println(theme.ResultLink.Render("  " + resp.ReaderResult.URL))
 			fmt.Println()
 
 			// Truncate content for display
 			content := resp.ReaderResult.Content
 			if len(content) > 2000 {
-				content = content[:2000] + "\n\n" + dimStyle.Render("[Content truncated - full content added to context]")
+				content = content[:2000] + "\n\n" + theme.Dim.Render("[Content truncated - full content added to context]")
 			}
-			fmt.Println(dimStyle.Render(content))
+			fmt.Println(theme.Dim.Render(content))
 			fmt.Println()
 
 			// Add to conversation context
@@ -329,7 +276,7 @@ func runChatREPL() error {
 		switch strings.ToLower(input) {
 		case "exit", "quit", "/exit", "/quit":
 			fmt.Println()
-			fmt.Println(dimStyle.Render("Goodbye!"))
+			fmt.Println(theme.Dim.Render("Goodbye!"))
 			fmt.Println()
 			return nil
 
@@ -381,14 +328,14 @@ func runChatREPL() error {
 
 		// Send to API with spinner
 		var stop atomic.Bool
-		go animateThinking(&stop)
+		go animateThinking(nil, &stop)
 
 		response, err := client.Chat(context.Background(), messageToSend, opts)
 		stop.Store(true)
 		time.Sleep(100 * time.Millisecond) // Let spinner clear
 
 		if err != nil {
-			fmt.Println(errorStyle.Render("Error: ") + dimStyle.Render(err.Error()))
+			fmt.Println(theme.ErrorText.Render("Error: ") + theme.Dim.Render(err.Error()))
 			fmt.Println()
 			continue
 		}
@@ -404,7 +351,7 @@ func runChatREPL() error {
 
 		// Display response with styling
 		fmt.Println()
-		fmt.Printf("%s %s\n", aiLabelStyle.Render("AI>"), response)
+		fmt.Printf("%s %s\n", theme.AILabel.Render("AI>"), response)
 		fmt.Println()
 	}
 
@@ -450,17 +397,17 @@ func parseSearchCommand(input string) (query string, opts app.SearchOptions) {
 func printSessionHistoryStyled(history []string) {
 	fmt.Println()
 	if len(history) == 0 {
-		fmt.Println(dimStyle.Render("  No messages yet."))
+		fmt.Println(theme.Dim.Render("  No messages yet."))
 		fmt.Println()
 		return
 	}
 
-	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf("Session History (%d messages)", len(history))))
-	fmt.Println(dividerStyle.Render(strings.Repeat("─", 40)))
+	fmt.Println(theme.Section.Render(fmt.Sprintf("Session History (%d messages)", len(history))))
+	fmt.Println(theme.Divider.Render(strings.Repeat("─", 40)))
 
 	for i, msg := range history {
 		fmt.Printf("  %s %s\n",
-			dimStyle.Render(fmt.Sprintf("%2d.", i+1)),
+			theme.Dim.Render(fmt.Sprintf("%2d.", i+1)),
 			truncate(msg, 60))
 	}
 	fmt.Println()
@@ -469,27 +416,27 @@ func printSessionHistoryStyled(history []string) {
 func printContextStyled(ctx []app.Message) {
 	fmt.Println()
 	if len(ctx) == 0 {
-		fmt.Println(dimStyle.Render("  No context yet."))
+		fmt.Println(theme.Dim.Render("  No context yet."))
 		fmt.Println()
 		return
 	}
 
-	fmt.Println(sectionHeaderStyle.Render(fmt.Sprintf("Conversation Context (%d messages)", len(ctx))))
-	fmt.Println(dividerStyle.Render(strings.Repeat("─", 40)))
+	fmt.Println(theme.Section.Render(fmt.Sprintf("Conversation Context (%d messages)", len(ctx))))
+	fmt.Println(theme.Divider.Render(strings.Repeat("─", 40)))
 
 	for _, msg := range ctx {
-		var roleStyle lipgloss.Style
 		var roleName string
+		var styledRole string
 		if msg.Role == "user" {
-			roleStyle = promptStyle
 			roleName = "You"
+			styledRole = theme.Prompt.Render(fmt.Sprintf("[%s]", roleName))
 		} else {
-			roleStyle = aiLabelStyle
 			roleName = "AI"
+			styledRole = theme.AILabel.Render(fmt.Sprintf("[%s]", roleName))
 		}
 		fmt.Printf("  %s %s\n",
-			roleStyle.Render(fmt.Sprintf("[%s]", roleName)),
-			dimStyle.Render(truncate(msg.Content, 50)))
+			styledRole,
+			theme.Dim.Render(truncate(msg.Content, 50)))
 	}
 	fmt.Println()
 }
