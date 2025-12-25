@@ -53,7 +53,7 @@ func Load() (*Config, error) {
 // SetDefaults sets default values
 func SetDefaults() {
 	viper.SetDefault("api.base_url", "https://api.z.ai/api/paas/v4")
-	viper.SetDefault("api.model", "glm-4.6")
+	viper.SetDefault("api.model", "glm-4.7")
 	viper.SetDefault("api.image_model", "cogview-4-250304")
 
 	// Web reader defaults

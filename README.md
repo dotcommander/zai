@@ -41,7 +41,7 @@ sudo cp bin/zai /usr/local/bin/
 ```bash
 export ZAI_API_KEY="your_api_key"
 export ZAI_API_BASE_URL="https://api.z.ai/api/paas/v4"  # optional
-export ZAI_API_MODEL="glm-4.6"  # optional
+export ZAI_API_MODEL="glm-4.7"  # optional
 ```
 
 ### Config File: `~/.config/zai/config.yaml`
@@ -49,7 +49,7 @@ export ZAI_API_MODEL="glm-4.6"  # optional
 api:
   key: "your-api-key"
   base_url: "https://api.z.ai/api/paas/v4"  # default
-  model: "glm-4.6"                           # default
+  model: "glm-4.7"                           # default
 
 # Web reader configuration
 web_reader:
@@ -153,7 +153,7 @@ zai image "product" --copy                  # Copy URL to clipboard (macOS)
 zai model list                    # List available models
 zai model list --json             # List models as JSON
 zai model current                 # Show current model
-zai model set glm-4.6            # Switch model
+zai model set glm-4.7            # Switch model
 ```
 
 ### History Management
@@ -249,7 +249,7 @@ Each JSON output includes:
 |----------|-------------|---------|
 | `ZAI_API_KEY` | API key (required) | - |
 | `ZAI_API_BASE_URL` | Override base URL | `https://api.z.ai/api/paas/v4` |
-| `ZAI_API_MODEL` | Override model | `glm-4.6` |
+| `ZAI_API_MODEL` | Override model | `glm-4.7` |
 
 ## Architecture
 

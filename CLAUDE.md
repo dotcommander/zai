@@ -31,7 +31,7 @@ Config file: `~/.config/zai/config.yaml`
 api:
   key: "your-api-key"
   base_url: "https://api.z.ai/api/paas/v4"  # default
-  model: "glm-4.6"                           # default
+  model: "glm-4.7"                           # default
 web_reader:
   enabled: true           # Enable web content fetching
   timeout: 20            # Default timeout in seconds
