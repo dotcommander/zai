@@ -32,3 +32,7 @@ go.work
 # OS files
 .DS_Store
 Thumbs.db
+
+# Test artifacts
+flow.md
+zai-image-*.png
