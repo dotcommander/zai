@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -104,16 +105,14 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		opts.RecencyFilter = cfg.WebSearch.DefaultRecency
 	}
 
-	// Create client
-	logger := &app.StderrLogger{Verbose: viper.GetBool("verbose")}
-	history := app.NewFileHistoryStore("")
-	client := app.NewClient(app.ClientConfig{
+	// Create client using factory with custom timeout
+	client := newClientWithConfig(app.ClientConfig{
 		APIKey:  cfg.API.Key,
 		BaseURL: cfg.API.BaseURL,
 		Model:   cfg.API.Model,
 		Timeout: time.Duration(cfg.WebSearch.Timeout) * time.Second,
 		Verbose: viper.GetBool("verbose"),
-	}, logger, history)
+	})
 
 	// Set context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.WebSearch.Timeout)*time.Second)
@@ -283,23 +282,37 @@ func formatSearchJSON(results []app.SearchResult, query string, duration time.Du
 	return string(data), nil
 }
 
-// extractDomain extracts domain from URL
-func extractDomain(url string) string {
-	if strings.HasPrefix(url, "http://") {
-		url = url[7:]
-	} else if strings.HasPrefix(url, "https://") {
-		url = url[8:]
+// extractDomain extracts domain from URL using net/url stdlib.
+// Handles edge cases like ports, IPv6, and malformed URLs.
+func extractDomain(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL // Return as-is if parsing fails
 	}
 
-	// Remove path
-	if idx := strings.Index(url, "/"); idx != -1 {
-		url = url[:idx]
+	host := u.Host
+
+	// Handle empty host (relative URLs, etc.)
+	if host == "" {
+		return rawURL
 	}
+
+	// Remove port if present (handles both IPv4:port and [IPv6]:port)
+	if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
+		// Check if it's not an IPv6 address without brackets
+		if !strings.Contains(host, "[") || strings.Contains(host, "]:") {
+			host = host[:colonIdx]
+		}
+	}
+
+	// Remove brackets from IPv6
+	host = strings.TrimPrefix(host, "[")
+	host = strings.TrimSuffix(host, "]")
 
 	// Remove www prefix
-	if strings.HasPrefix(url, "www.") {
-		url = url[4:]
+	if strings.HasPrefix(host, "www.") {
+		host = host[4:]
 	}
 
-	return url
+	return host
 }
