@@ -5,12 +5,6 @@ A powerful command-line interface for Z.AI GLM models with chat, web search, ima
 ## Quick Start
 
 ```bash
-# Build
-go build -o bin/zai .
-
-# Install globally (optional)
-ln -sf /Users/vampire/go/src/zai/bin/zai ~/go/bin/zai
-
 # Set API key
 export ZAI_API_KEY="your_api_key"
 
@@ -20,19 +14,21 @@ zai "Explain quantum computing"
 
 ## Installation
 
-### From Source
+### Go Install
 ```bash
-git clone https://github.com/your-repo/zai.git
-cd zai
-go build -o bin/zai .
+go install github.com/garyblankenship/zai@latest
 ```
 
-### Global Installation
+### From Source
 ```bash
-# Add to PATH
-ln -sf /path/to/zai/bin/zai ~/go/bin/zai
-# or
-sudo cp bin/zai /usr/local/bin/
+git clone https://github.com/garyblankenship/zai.git
+cd zai
+go build -o bin/zai . && ln -sf $(pwd)/bin/zai ~/go/bin/zai
+```
+
+### Homebrew (macOS)
+```bash
+brew install ffmpeg yt-dlp  # Optional: for audio transcription
 ```
 
 ## Configuration
@@ -148,6 +144,40 @@ zai image "product" --copy                  # Copy URL to clipboard (macOS)
 - **Auto-save**: Images automatically saved to `zai-image-{timestamp}.png`
 - **Professional prompts**: Enhancement adds cinematic lighting, camera specs, composition, mood
 
+### Audio Transcription
+```bash
+zai audio recording.wav                      # Transcribe audio file
+zai audio speech.mp3 --model glm-asr-2512   # Specify ASR model
+zai audio interview.wav --prompt "Context"   # Add context
+zai audio lecture.wav --hotwords "k8s,docker" # Domain vocabulary
+zai audio --video https://youtu.be/abc123    # YouTube support
+zai audio recording.wav --vad                # Remove silence (reduces cost)
+zai audio recording.wav --resume             # Resume partial transcription
+zai audio recording.wav --clear-cache        # Start fresh
+zai audio recording.wav --json               # JSON output
+```
+
+**Features:**
+- **YouTube Support**: Transcribe YouTube videos directly with `--video`
+- **VAD (Voice Activity Detection)**: Remove silence to reduce API costs
+- **Auto-chunking**: Large files (>25MB) automatically split into chunks
+- **Resume Support**: Continue from where you left off on failures
+- **Preprocessing**: Auto-converts to optimal 16kHz mono WAV
+- **Hotwords**: Domain vocabulary for better accuracy (up to 100 terms)
+
+**Supported formats**: .wav, .mp3, .mp4, .m4a, .flac, .aac, .ogg
+
+### Vision Analysis
+```bash
+zai vision photo.jpg                         # Describe image
+zai vision screenshot.png "What text?"        # Extract text
+zai vision https://example.com/img.jpg       # Analyze URL
+zai vision chart.png -p "Explain this chart" # Custom prompt
+zai vision diagram.png -t 0.1                # Lower temperature
+```
+
+**Supported formats**: .jpg, .jpeg, .png, .gif, .webp
+
 ### Model Management
 ```bash
 zai model list                    # List available models
@@ -163,6 +193,11 @@ zai history -l 0                 # Show all history
 zai history -n 10                # Show last 10 entries
 zai history --search "quantum"    # Search history
 zai history --json               # Output history as JSON
+```
+
+### Version
+```bash
+zai version                       # Show version, build time, commit
 ```
 
 ## Command Reference
@@ -187,6 +222,9 @@ zai history --json               # Output history as JSON
 | `image` | Generate images using Z.AI's image generation API |
 | `model` | Model management commands |
 | `history` | Show chat history |
+| `audio` | Transcribe audio files to text |
+| `vision` | Analyze images with AI vision |
+| `version` | Show version information |
 | `completion` | Generate shell autocompletion script |
 
 ### Shell Autocompletion
@@ -264,7 +302,10 @@ zai/
 │   ├── search.go         # Web search command
 │   ├── web.go            # Web reader command
 │   ├── image.go          # Image generation command
-│   └── model.go          # Model management command
+│   ├── audio.go          # Audio transcription command
+│   ├── vision.go         # Vision analysis command
+│   ├── model.go          # Model management command
+│   └── version.go        # Version info command
 ├── internal/
 │   ├── app/
 │   │   ├── client.go     # HTTP client, API calls (DI, interfaces)
@@ -272,8 +313,10 @@ zai/
 │   │   ├── history.go    # File-based history storage
 │   │   ├── cache.go      # File-based search caching
 │   │   └── utils.go      # URL detection, web content formatting
-│   └── config/
-│       └── config.go     # Viper defaults and loading
+│   ├── config/
+│   │   └── config.go     # Viper defaults and loading
+│   └── version/
+│       └── version.go    # Build-time version info
 ├── bin/                   # Built binaries
 └── main.go
 ```
@@ -283,15 +326,21 @@ zai/
 - **Context Management**: REPL maintains conversation context (last 20 messages)
 - **Web Integration**: Auto-detect URLs and fetch content via Z.AI reader API
 - **Search Capabilities**: Built-in web search with caching and filtering
+- **Audio Transcription**: Speech-to-text with YouTube support and chunking
+- **Vision Analysis**: Image understanding with GLM-4.6V
 - **History Storage**: JSONL file at `~/.config/zai/history.jsonl`
 - **Caching**: Intelligent caching for web content and search results
-- ** stdin Support**: Detects piped input automatically
+- **stdin Support**: Detects piped input automatically
 
 ## Requirements
 
-- **Go**: 1.21+ (tested on 1.25.5)
+- **Go**: 1.21+
 - **OS**: Cross-platform (Linux, macOS, Windows)
 - **API**: Z.AI API key (required)
+
+**Optional** (for audio transcription):
+- **ffmpeg**: Audio preprocessing and chunking
+- **yt-dlp**: YouTube audio extraction
 
 ## Examples
 
@@ -305,6 +354,25 @@ zai -f script.py "Convert this to JavaScript"
 ```bash
 zai search "Rust vs Go performance 2024"
 zai web https://arxiv.org/abs/2301.07041 "Summarize this paper"
+```
+
+### Audio Transcription
+```bash
+zai audio meeting.wav                           # Transcribe recording
+zai audio podcast.mp3 --vad                     # Remove silence first
+zai audio lecture.wav --hotwords "API,REST,GraphQL"  # Domain terms
+zai audio --video https://youtu.be/dQw4w9WgXcQ  # Transcribe YouTube
+zai audio long-interview.wav --resume           # Resume if interrupted
+cat audio.wav | zai audio                       # From stdin
+```
+
+### Vision Analysis
+```bash
+zai vision photo.jpg                            # Describe image
+zai vision screenshot.png "What text is here?"  # OCR/text extraction
+zai vision chart.png "Explain the trends"       # Chart analysis
+zai vision error.png "What's wrong?"            # Debug screenshots
+zai vision https://example.com/diagram.jpg      # Analyze from URL
 ```
 
 ### Daily Use
