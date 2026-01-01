@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/garyblankenship/zai/internal/app"
+	"github.com/dotcommander/zai/internal/app"
 )
 
 // Flag variables for Cobra binding (required for PersistentFlags).

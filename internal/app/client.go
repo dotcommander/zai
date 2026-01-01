@@ -16,7 +16,7 @@ import (
 
 	"mime/multipart"
 
-	"github.com/garyblankenship/zai/internal/app/utils"
+	"github.com/dotcommander/zai/internal/app/utils"
 	"golang.org/x/sync/errgroup"
 )
 

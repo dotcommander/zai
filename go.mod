@@ -1,4 +1,4 @@
-module github.com/garyblankenship/zai
+module github.com/dotcommander/zai
 
 go 1.25.4
 
