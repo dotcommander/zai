@@ -1,17 +1,13 @@
 package cmd
 
 import (
-	"encoding/base64"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/garyblankenship/zai/internal/app"
+	"github.com/garyblankenship/zai/internal/app/utils"
 )
 
 var (
@@ -46,6 +42,48 @@ Examples:
 	},
 }
 
+// ImageSource represents the type of image source (URL or local file)
+type ImageSource int
+
+const (
+	ImageSourceURL ImageSource = iota
+	ImageSourceFile
+)
+
+// detectImageSource determines if the image source is a URL or local file
+func detectImageSource(source string) ImageSource {
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
+		return ImageSourceURL
+	}
+	return ImageSourceFile
+}
+
+// buildVisionPrompt builds the vision prompt from user inputs
+func buildVisionPrompt(userPrompt, flagPrompt, defaultPrompt string) string {
+	if flagPrompt != "" {
+		return flagPrompt
+	}
+	if userPrompt != "" {
+		return userPrompt
+	}
+	return defaultPrompt
+}
+
+// encodeLocalImage reads and encodes a local image file to base64 data URI
+func encodeLocalImage(imagePath string, fileReader utils.FileReader) (string, error) {
+	data, err := fileReader.ReadFile(imagePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image file: %w", err)
+	}
+
+	mimeType, err := utils.DetectImageMimeType(imagePath)
+	if err != nil {
+		return "", err
+	}
+
+	return utils.EncodeBytesToDataURI(data, mimeType), nil
+}
+
 func init() {
 	visionCmd.Flags().StringVarP(&visionFile, "file", "f", "", "Image file path or URL (required)")
 	visionCmd.Flags().StringVarP(&visionPrompt, "prompt", "p", "", "Analysis prompt (default: describe the image)")
@@ -62,31 +100,13 @@ func runVision(imageSource, prompt string) error {
 	ctx, cancel := createContext(5 * time.Minute)
 	defer cancel()
 
-	// Use flag prompt if provided, otherwise use argument
-	if visionPrompt != "" {
-		prompt = visionPrompt
-	}
+	// Build the prompt using pure function
+	prompt = buildVisionPrompt(prompt, visionPrompt, "What do you see in this image? Please provide a detailed description.")
 
-	// Default prompt
-	if prompt == "" {
-		prompt = "What do you see in this image? Please provide a detailed description."
-	}
-
-	// Determine if imageSource is a URL or local file
-	var imageBase64 string
-	var err error
-
-	if strings.HasPrefix(imageSource, "http://") || strings.HasPrefix(imageSource, "https://") {
-		// For URLs, pass directly
-		imageBase64 = imageSource
-		fmt.Printf("🌐 Fetching image from URL: %s\n", imageSource)
-	} else {
-		// Local file - read and encode to base64
-		imageBase64, err = encodeImageToBase64(imageSource)
-		if err != nil {
-			return fmt.Errorf("failed to read image: %w", err)
-		}
-		fmt.Printf("📁 Analyzing image: %s\n", imageSource)
+	// Determine image source type and handle accordingly
+	imageBase64, err := processImageSource(imageSource, client)
+	if err != nil {
+		return fmt.Errorf("failed to process image: %w", err)
 	}
 
 	// Build options
@@ -113,73 +133,20 @@ func runVision(imageSource, prompt string) error {
 	return nil
 }
 
-// encodeImageToBase64 reads an image file and returns it as a data URI.
-func encodeImageToBase64(imagePath string) (string, error) {
-	// Check if file exists
-	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("file not found: %s", imagePath)
-	}
+// processImageSource handles URL and local image sources appropriately
+func processImageSource(imageSource string, client *app.Client) (string, error) {
+	sourceType := detectImageSource(imageSource)
 
-	// Read file
-	data, err := os.ReadFile(imagePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-
-	// Determine MIME type from extension
-	ext := strings.ToLower(filepath.Ext(imagePath))
-	var mimeType string
-	switch ext {
-	case ".jpg", ".jpeg":
-		mimeType = "image/jpeg"
-	case ".png":
-		mimeType = "image/png"
-	case ".gif":
-		mimeType = "image/gif"
-	case ".webp":
-		mimeType = "image/webp"
+	switch sourceType {
+	case ImageSourceURL:
+		fmt.Printf("🌐 Fetching image from URL: %s\n", imageSource)
+		return imageSource, nil
+	case ImageSourceFile:
+		fmt.Printf("📁 Analyzing image: %s\n", imageSource)
+		fileReader := utils.OSFileReader{}
+		return encodeLocalImage(imageSource, fileReader)
 	default:
-		return "", fmt.Errorf("unsupported image format: %s (supported: jpg, jpeg, png, gif, webp)", ext)
+		return "", fmt.Errorf("unsupported image source: %s", imageSource)
 	}
-
-	// Encode to base64
-	encoded := base64.StdEncoding.EncodeToString(data)
-
-	// Return as data URI
-	return fmt.Sprintf("data:%s;base64,%s", mimeType, encoded), nil
 }
 
-// downloadImage downloads an image from URL and returns base64 data URI.
-// Uses provided HTTPDoer for connection pooling.
-// Not currently used but available for future enhancement (download + local processing).
-func downloadImage(client app.HTTPDoer, url string) (string, error) {
-	// Create request using shared HTTP client
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to download: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Detect content type
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "image/jpeg" // default
-	}
-
-	encoded := base64.StdEncoding.EncodeToString(data)
-	return fmt.Sprintf("data:%s;base64,%s", contentType, encoded), nil
-}
