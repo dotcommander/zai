@@ -16,10 +16,17 @@ type Config struct {
 }
 
 type APIConfig struct {
-	Key        string `mapstructure:"key"`
-	BaseURL    string `mapstructure:"base_url"`
-	Model      string `mapstructure:"model"`
-	ImageModel string `mapstructure:"image_model"`
+	Key        string      `mapstructure:"key"`
+	BaseURL    string      `mapstructure:"base_url"`
+	Model      string      `mapstructure:"model"`
+	ImageModel string      `mapstructure:"image_model"`
+	Retry      RetryConfig `mapstructure:"retry"`
+}
+
+type RetryConfig struct {
+	MaxAttempts    int           `mapstructure:"max_attempts"`
+	InitialBackoff time.Duration `mapstructure:"initial_backoff"`
+	MaxBackoff     time.Duration `mapstructure:"max_backoff"`
 }
 
 type WebReaderConfig struct {
@@ -55,6 +62,11 @@ func SetDefaults() {
 	viper.SetDefault("api.base_url", "https://api.z.ai/api/paas/v4")
 	viper.SetDefault("api.model", "glm-4.7")
 	viper.SetDefault("api.image_model", "cogview-4-250304")
+
+	// Retry defaults
+	viper.SetDefault("api.retry.max_attempts", 3)
+	viper.SetDefault("api.retry.initial_backoff", "1s")
+	viper.SetDefault("api.retry.max_backoff", "30s")
 
 	// Web reader defaults
 	viper.SetDefault("web_reader.enabled", true)

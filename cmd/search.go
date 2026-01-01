@@ -12,8 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"zai/internal/app"
-	"zai/internal/config"
+	"github.com/garyblankenship/zai/internal/app"
+	"github.com/garyblankenship/zai/internal/config"
 )
 
 var (

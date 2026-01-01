@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"zai/internal/app"
+	"github.com/garyblankenship/zai/internal/app"
 )
 
 var (

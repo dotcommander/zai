@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"zai/internal/app"
+	"github.com/garyblankenship/zai/internal/app"
 )
 
 // Flag variables for Cobra binding (required for PersistentFlags).
@@ -69,7 +69,7 @@ History:
 	Args: cobra.ArbitraryArgs,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Skip config init for commands that don't need API
-		if cmd.Name() == "history" || cmd.Name() == "completion" || cmd.Name() == "help" {
+		if cmd.Name() == "history" || cmd.Name() == "completion" || cmd.Name() == "help" || cmd.Name() == "version" {
 			return nil
 		}
 		return initConfig()
@@ -161,10 +161,13 @@ func styledHelp(cmd *cobra.Command, args []string) {
 	commands := [][]string{
 		{"chat", "Interactive chat session (REPL)"},
 		{"search", "Search the web"},
-		{"web", "Fetch web content"},
+		{"reader", "Fetch web content"},
 		{"image", "Generate images with AI enhancement"},
+		{"vision", "Analyze images with AI vision"},
+		{"audio", "Transcribe audio to text"},
 		{"history", "View chat history"},
 		{"model", "Model management"},
+		{"version", "Show version information"},
 	}
 	for _, c := range commands {
 		fmt.Printf("  %s  %s\n",
@@ -227,13 +230,30 @@ func initConfig() error {
 	return nil
 }
 
+// createContext creates a context with timeout for CLI operations.
+// If timeout is 0, returns a cancelable context without timeout.
+func createContext(timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout > 0 {
+		return context.WithTimeout(context.Background(), timeout)
+	}
+	return context.WithCancel(context.Background())
+}
+
 // buildClientConfig creates ClientConfig from viper settings.
 func buildClientConfig() app.ClientConfig {
+	// Load retry config from viper
+	retryCfg := app.RetryConfig{
+		MaxAttempts:    viper.GetInt("api.retry.max_attempts"),
+		InitialBackoff: viper.GetDuration("api.retry.initial_backoff"),
+		MaxBackoff:     viper.GetDuration("api.retry.max_backoff"),
+	}
+
 	return app.ClientConfig{
-		APIKey:  viper.GetString("api.key"),
-		BaseURL: viper.GetString("api.base_url"),
-		Model:   viper.GetString("api.model"),
-		Verbose: viper.GetBool("verbose"),
+		APIKey:     viper.GetString("api.key"),
+		BaseURL:    viper.GetString("api.base_url"),
+		Model:      viper.GetString("api.model"),
+		Verbose:    viper.GetBool("verbose"),
+		RetryConfig: retryCfg,
 	}
 }
 
@@ -292,6 +312,10 @@ func runOneShot(prompt string) error {
 		}
 	}
 
+	// Create context with 5 minute timeout for the entire operation
+	ctx, cancel := createContext(5 * time.Minute)
+	defer cancel()
+
 	// Augment prompt with web search results if --search flag is set
 	if cfg.Search {
 		if cfg.Verbose {
@@ -302,7 +326,7 @@ func runOneShot(prompt string) error {
 			Count:         5,
 			RecencyFilter: "oneWeek",
 		}
-		results, err := client.SearchWeb(context.Background(), prompt, searchOpts)
+		results, err := client.SearchWeb(ctx, prompt, searchOpts)
 		if err != nil {
 			if cfg.Verbose {
 				fmt.Fprintf(os.Stderr, "Search failed (continuing without): %v\n", err)
@@ -317,7 +341,7 @@ func runOneShot(prompt string) error {
 		}
 	}
 
-	response, err := client.Chat(context.Background(), prompt, opts)
+	response, err := client.Chat(ctx, prompt, opts)
 	if err != nil {
 		return fmt.Errorf("failed to get response: %w", err)
 	}

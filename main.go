@@ -1,8 +1,8 @@
 package main
 
 import (
-	"zai/cmd"
-	"zai/internal/config"
+	"github.com/garyblankenship/zai/cmd"
+	"github.com/garyblankenship/zai/internal/config"
 )
 
 func main() {

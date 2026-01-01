@@ -38,7 +38,11 @@ func init() {
 func runModelList() error {
 	client := newClient()
 
-	models, err := client.ListModels(context.Background())
+	var ctx context.Context
+	ctx, cancel := createContext(30 * time.Second)
+	defer cancel()
+
+	models, err := client.ListModels(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list models: %w", err)
 	}

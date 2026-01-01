@@ -221,3 +221,65 @@ type SearchCacheEntry struct {
 	ExpiresAt  time.Time     `json:"expires_at"`
 	Hash       string        `json:"hash"` // SHA256 of query + options
 }
+
+// RetryConfig configures retry behavior for transient failures.
+type RetryConfig struct {
+	MaxAttempts    int           // Maximum number of retry attempts (default: 3)
+	InitialBackoff time.Duration // Initial backoff duration (default: 1s)
+	MaxBackoff     time.Duration // Maximum backoff duration (default: 30s)
+}
+
+// VisionRequest represents a vision/image analysis API request.
+type VisionRequest struct {
+	Model       string        `json:"model"`
+	Messages    []VisionMessage `json:"messages"`
+	Stream      bool          `json:"stream"`
+	Temperature float64       `json:"temperature,omitempty"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	TopP        float64       `json:"top_p,omitempty"`
+}
+
+// VisionMessage represents a message in vision API (supports multimodal content).
+type VisionMessage struct {
+	Role    string         `json:"role"`
+	Content []ContentPart  `json:"content"`
+}
+
+// ContentPart represents a part of multimodal content (text or image).
+type ContentPart struct {
+	Type      string           `json:"type"` // "text" or "image_url"
+	Text      string           `json:"text,omitempty"`
+	ImageURL  *ImageURLContent `json:"image_url,omitempty"`
+}
+
+// ImageURLContent contains image URL or base64 data.
+type ImageURLContent struct {
+	URL string `json:"url"`
+}
+
+// VisionOptions configures vision/analysis requests.
+type VisionOptions struct {
+	Model       string  // Override default model (e.g., "glm-4.6v")
+	Temperature *float64 // Override default temperature
+	MaxTokens   *int     // Override default max tokens
+	TopP        *float64 // Override default top_p
+}
+
+// TranscriptionResponse represents the audio transcription API response.
+type TranscriptionResponse struct {
+	ID        string `json:"id"`
+	Created   int64  `json:"created"`
+	RequestID string `json:"request_id,omitempty"`
+	Model     string `json:"model"`
+	Text      string `json:"text"`
+}
+
+// TranscriptionOptions configures audio transcription requests.
+type TranscriptionOptions struct {
+	Model    string   // Override default model (default: glm-asr-2512)
+	Prompt   string   // Context from prior transcriptions (max 8000 chars)
+	Hotwords []string // Domain vocabulary (max 100 items)
+	Stream   bool     // Enable streaming via Event Stream
+	UserID   string   // End user ID (6-128 characters)
+	RequestID string  // Client-provided unique identifier
+}

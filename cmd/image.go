@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"zai/internal/app"
+	"github.com/garyblankenship/zai/internal/app"
 )
 
 var (
@@ -60,11 +60,14 @@ func init() {
 	imageCmd.Flags().StringVarP(&imageSize, "size", "s", "1024x1024", "Image size: 1024x1024, 1024x768, 768x1024, or 512x512 (default: 1024x1024)")
 	imageCmd.Flags().StringVarP(&imageOutput, "output", "o", "", "Save image to file path")
 	imageCmd.Flags().BoolVarP(&imageShow, "show", "S", false, "Open image with default viewer after generation")
-	imageCmd.Flags().BoolVarP(&imageCopy, "copy", "c", false, "Copy image to clipboard (macOS only)")
+	imageCmd.Flags().BoolVarP(&imageCopy, "copy", "c", false, "Copy image to clipboard (macOS, Linux, Windows)")
 	imageCmd.Flags().StringVarP(&imageModel, "model", "m", "", "Override default image model")
 	imageCmd.Flags().StringVar(&imageUserID, "user-id", "", "User ID for analytics")
 	imageCmd.Flags().BoolVarP(&imageEnhance, "enhance", "e", true, "Enhance prompt with AI before generation")
 	imageCmd.Flags().BoolVar(&imageNoEnhance, "no-enhance", false, "Disable prompt enhancement")
+
+	// Mark mutually exclusive flags
+	imageCmd.MarkFlagsMutuallyExclusive("enhance", "no-enhance")
 
 	// Add subcommands
 	imageCmd.AddCommand(imageListCmd)
@@ -82,40 +85,22 @@ func shouldEnhancePrompt() bool {
 	return imageEnhance
 }
 
-// enhanceImagePrompt uses the chat LLM to transform a simple description
-// into a professional, detailed image generation prompt optimized for CogView/Z-Image.
-func enhanceImagePrompt(client *app.Client, prompt string) (string, error) {
-	systemPrompt := `You are an elite image prompt engineer specializing in AI image generation. Transform simple concepts into cinematic, production-ready prompts.
+// enhanceImagePromptWithCtx is the context-aware version of enhanceImagePrompt.
+func enhanceImagePromptWithCtx(ctx context.Context, client *app.Client, prompt string) (string, error) {
+	systemPrompt := `You are an expert at creating detailed, evocative prompts for AI image generation.
 
-## PROMPT ARCHITECTURE (follow this order)
-[SUBJECT ANCHOR] → [ENVIRONMENT & CONTEXT] → [ARTISTIC DIRECTION] → [TECHNICAL PARAMETERS]
+## YOUR TASK
+Transform the user's simple prompt into a rich, detailed image generation prompt.
 
-## REQUIRED ELEMENTS
-1. **Subject**: Lead with main subject, be specific (not "a woman" but "a weathered elderly fisherman with salt-and-pepper beard")
-2. **Action/Pose**: What is the subject doing? Dynamic verbs create energy
-3. **Environment**: Ground the scene - location, time of day, weather, atmosphere
-4. **Lighting**: ALWAYS specify - this transforms amateur to professional
-   - Golden hour, blue hour, overcast diffused, harsh midday
-   - Rim lighting, volumetric god rays, subsurface scattering (skin)
-   - Dramatic chiaroscuro, soft studio lighting, natural window light
+## STYLE GUIDE
+Use this framework: [Subject + Action] + [Environment/Setting] + [Lighting/Atmosphere] + [Technical Specs]
 
-## PHOTOGRAPHY PARAMETERS (for photorealistic)
-- **Lens**: 14-24mm (dramatic wide), 35-50mm (natural), 85mm (portrait), 200mm+ (compressed telephoto)
-- **Aperture**: f/1.4-2.8 (dreamy bokeh), f/5.6-8 (balanced), f/11-16 (sharp throughout)
-- **Camera**: "Shot on Canon EOS R5", "Hasselblad medium format", "ARRI Alexa cinematic"
-- **Film**: "Kodak Portra 400 colors", "Fujifilm Velvia saturation", "CineStill 800T tungsten"
+## EXAMPLES
+Input: "a wizard"
+Output: "An elderly wizard with a flowing silver beard stands atop a crystalline tower, arms raised to channel crackling blue energy, surrounded by ancient runes glowing softly on stone walls. Dramatic moonlight beams through arched windows, illuminating floating dust motes. Cinematic wide shot, photorealistic, 8K resolution, volumetric lighting."
 
-## STYLE MODIFIERS (pick appropriate ones)
-- Art: oil painting, watercolor, digital art, concept art, anime cel-shaded, art nouveau
-- Photo: photorealistic, editorial, documentary, street photography, fashion
-- Render: Unreal Engine 5, Octane render, ray tracing, subsurface scattering
-- Mood: ethereal, moody, dramatic, whimsical, dystopian, serene, epic, intimate
-
-## QUALITY ENHANCERS
-- Resolution: "8K resolution", "ultra-detailed", "intricate details"
-- Texture: "micro-details", "tactile textures", "film grain"
-- Composition: "rule of thirds", "leading lines", "negative space", "Dutch angle"
-- Polish: "sharp focus", "professional color grading", "award-winning photography"
+Input: "cat in a garden"
+Output: "A fluffy ginger cat lounging on a weathered wooden bench in a sun-drenched cottage garden, surrounded by cascading ivy and blooming roses. Golden hour sunlight filters through oak leaves, creating dappled patterns on fur. Macro photography style, shallow depth of field, warm color palette."
 
 ## OUTPUT RULES
 - Write as vivid natural language sentences, NOT keyword lists
@@ -132,7 +117,7 @@ func enhanceImagePrompt(client *app.Client, prompt string) (string, error) {
 	}
 
 	userPrompt := fmt.Sprintf("Transform this into a cinematic image prompt: %s", prompt)
-	enhanced, err := client.Chat(context.Background(), userPrompt, opts)
+	enhanced, err := client.Chat(ctx, userPrompt, opts)
 	if err != nil {
 		return "", err // Return error, let caller handle fallback
 	}
@@ -146,8 +131,17 @@ func enhanceImagePrompt(client *app.Client, prompt string) (string, error) {
 	return result, nil
 }
 
+func enhanceImagePrompt(client *app.Client, prompt string) (string, error) {
+	ctx, cancel := createContext(2 * time.Minute)
+	defer cancel()
+	return enhanceImagePromptWithCtx(ctx, client, prompt)
+}
+
 func runImageGeneration(prompt string) error {
 	client := newClient()
+
+	ctx, cancel := createContext(5 * time.Minute)
+	defer cancel()
 
 	// Build image options
 	opts := app.ImageOptions{
@@ -184,7 +178,7 @@ func runImageGeneration(prompt string) error {
 
 	// Generate image
 	fmt.Printf("\n🖼️  Generating image...\n")
-	response, err := client.GenerateImage(context.Background(), finalPrompt, opts)
+	response, err := client.GenerateImage(ctx, finalPrompt, opts)
 	if err != nil {
 		return fmt.Errorf("failed to generate image: %w", err)
 	}
@@ -216,7 +210,7 @@ func runImageGeneration(prompt string) error {
 		outputPath = fmt.Sprintf("zai-image-%s.png", timestamp)
 	}
 
-	if err := saveImageToDisk(imageData.URL, outputPath); err != nil {
+	if err := saveImageToDisk(client.HTTPClient(), imageData.URL, outputPath); err != nil {
 		fmt.Printf("⚠️  Warning: Failed to save image: %v\n", err)
 	} else {
 		fmt.Printf("💾 Saved to: %s\n", outputPath)
@@ -242,9 +236,12 @@ func runImageGeneration(prompt string) error {
 func runImageModelList() error {
 	client := newClient()
 
+	ctx, cancel := createContext(30 * time.Second)
+	defer cancel()
+
 	// Note: Using the same ListModels method as chat for now
 	// In a real implementation, this might be a separate endpoint
-	models, err := client.ListModels(context.Background())
+	models, err := client.ListModels(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list models: %w", err)
 	}
@@ -273,7 +270,8 @@ func runImageModelList() error {
 }
 
 // saveImageToDisk downloads an image from URL and saves to file
-func saveImageToDisk(url, filePath string) error {
+// Uses provided HTTPDoer for connection pooling.
+func saveImageToDisk(client app.HTTPDoer, url, filePath string) error {
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
 	if dir != "" && dir != "." {
@@ -282,8 +280,13 @@ func saveImageToDisk(url, filePath string) error {
 		}
 	}
 
-	// Download the image
-	resp, err := http.Get(url)
+	// Download the image using shared HTTP client
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to download image: %w", err)
 	}
@@ -309,13 +312,24 @@ func saveImageToDisk(url, filePath string) error {
 	return nil
 }
 
-// copyToClipboard copies URL to clipboard (macOS only)
+// copyToClipboard copies URL to clipboard (macOS, Linux, Windows)
 func copyToClipboard(url string) error {
-	if _, err := exec.LookPath("pbcopy"); err != nil {
-		return fmt.Errorf("pbcopy not found (macOS only)")
+	var cmd *exec.Cmd
+	var err error
+
+	// Platform-specific commands
+	if _, err = exec.LookPath("pbcopy"); err == nil { // macOS
+		cmd = exec.Command("pbcopy")
+	} else if _, err = exec.LookPath("xclip"); err == nil { // Linux
+		cmd = exec.Command("xclip", "-selection", "clipboard")
+	} else if _, err = exec.LookPath("xsel"); err == nil { // Linux (alternative)
+		cmd = exec.Command("xsel", "--clipboard", "--input")
+	} else if _, err = exec.LookPath("clip"); err == nil { // Windows
+		cmd = exec.Command("clip")
+	} else {
+		return fmt.Errorf("no suitable clipboard tool found (requires: pbcopy/macOS, xclip/xsel/Linux, or clip/Windows)")
 	}
 
-	cmd := exec.Command("pbcopy")
 	cmd.Stdin = strings.NewReader(url)
 	return cmd.Run()
 }

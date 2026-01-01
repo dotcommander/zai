@@ -8,39 +8,42 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"zai/internal/app"
+	"github.com/garyblankenship/zai/internal/app"
 )
 
-// webCmd represents the web command
-var webCmd = &cobra.Command{
-	Use:   "web <url>",
+// readerCmd represents the reader command
+var readerCmd = &cobra.Command{
+	Use:   "reader <url>",
 	Short: "Fetch and display web content",
 	Long: `Fetch and display web content from a URL using Z.AI's web reader API.
 
 Examples:
-  zai web https://example.com
-  zai web https://example.com --format text
-  zai web https://example.com --no-cache
-  zai web https://example.com --timeout 30
-  zai web https://example.com --with-links-summary`,
+  zai reader https://example.com
+  zai reader https://example.com --format text
+  zai reader https://example.com --no-cache
+  zai reader https://example.com --timeout 30
+  zai reader https://example.com --with-links-summary`,
 	Args: cobra.ExactArgs(1),
-	RunE: runWeb,
+	RunE: runReader,
 }
 
 var (
-	webFormat          string
-	webTimeout         int
-	webNoCache         bool
-	webNoGFM           bool
-	webKeepImgDataURL  bool
-	webWithImagesSum   bool
-	webWithLinksSum    bool
-	webNoRetainImages  bool
-	webJSON            bool
+	readerFormat          string
+	readerTimeout         int
+	readerNoCache         bool
+	readerNoGFM           bool
+	readerKeepImgDataURL  bool
+	readerWithImagesSum   bool
+	readerWithLinksSum    bool
+	readerNoRetainImages  bool
+	readerJSON            bool
 )
 
-func runWeb(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+func runReader(cmd *cobra.Command, args []string) error {
+	var ctx context.Context
+	ctx, cancel := createContext(2 * time.Minute)
+	defer cancel()
+
 	url := args[0]
 
 	// Validate API key
@@ -54,33 +57,33 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		BaseURL: viper.GetString("api.base_url"),
 		Model:   viper.GetString("api.model"),
 		Verbose: viper.GetBool("verbose"),
-		Timeout: time.Duration(webTimeout) * time.Second,
+		Timeout: time.Duration(readerTimeout) * time.Second,
 	}
 	logger := &app.StderrLogger{Verbose: clientConfig.Verbose}
 	client := app.NewClient(clientConfig, logger, nil, nil)
 
 	// Build web reader options
 	opts := &app.WebReaderOptions{
-		ReturnFormat:      webFormat,
-		Timeout:           &webTimeout,
-		NoCache:           &webNoCache,
-		NoGFM:             &webNoGFM,
-		KeepImgDataURL:    &webKeepImgDataURL,
-		WithImagesSummary: &webWithImagesSum,
-		WithLinksSummary:  &webWithLinksSum,
+		ReturnFormat:      readerFormat,
+		Timeout:           &readerTimeout,
+		NoCache:           &readerNoCache,
+		NoGFM:             &readerNoGFM,
+		KeepImgDataURL:    &readerKeepImgDataURL,
+		WithImagesSummary: &readerWithImagesSum,
+		WithLinksSummary:  &readerWithLinksSum,
 	}
 
 	// Set retain images (default true)
-	retainImages := !webNoRetainImages
+	retainImages := !readerNoRetainImages
 	opts.RetainImages = &retainImages
 
 	// Validate format
-	if webFormat != "markdown" && webFormat != "text" {
-		return fmt.Errorf("invalid format: %s (must be 'markdown' or 'text')", webFormat)
+	if readerFormat != "markdown" && readerFormat != "text" {
+		return fmt.Errorf("invalid format: %s (must be 'markdown' or 'text')", readerFormat)
 	}
 
 	// Validate timeout
-	if webTimeout <= 0 {
+	if readerTimeout <= 0 {
 		return fmt.Errorf("timeout must be positive")
 	}
 
@@ -91,7 +94,7 @@ func runWeb(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output results
-	if webJSON {
+	if readerJSON {
 		// Create structured JSON output
 		output := map[string]interface{}{
 			"url":               resp.ReaderResult.URL,
@@ -152,16 +155,16 @@ func runWeb(cmd *cobra.Command, args []string) error {
 }
 
 func init() {
-	rootCmd.AddCommand(webCmd)
+	rootCmd.AddCommand(readerCmd)
 
 	// Web reader flags
-	webCmd.Flags().StringVar(&webFormat, "format", "markdown", "Return format (markdown or text)")
-	webCmd.Flags().IntVar(&webTimeout, "timeout", 20, "Request timeout in seconds")
-	webCmd.Flags().BoolVar(&webNoCache, "no-cache", false, "Disable caching")
-	webCmd.Flags().BoolVar(&webNoGFM, "no-gfm", false, "Disable GitHub Flavored Markdown")
-	webCmd.Flags().BoolVar(&webKeepImgDataURL, "keep-img-data-url", false, "Keep image data URLs")
-	webCmd.Flags().BoolVar(&webWithImagesSum, "with-images-summary", false, "Include image summary")
-	webCmd.Flags().BoolVar(&webWithLinksSum, "with-links-summary", false, "Include links summary")
-	webCmd.Flags().BoolVar(&webNoRetainImages, "no-retain-images", false, "Do not retain images")
-	webCmd.Flags().BoolVar(&webJSON, "json", false, "Output in JSON format")
+	readerCmd.Flags().StringVar(&readerFormat, "format", "markdown", "Return format (markdown or text)")
+	readerCmd.Flags().IntVar(&readerTimeout, "timeout", 20, "Request timeout in seconds")
+	readerCmd.Flags().BoolVar(&readerNoCache, "no-cache", false, "Disable caching")
+	readerCmd.Flags().BoolVar(&readerNoGFM, "no-gfm", false, "Disable GitHub Flavored Markdown")
+	readerCmd.Flags().BoolVar(&readerKeepImgDataURL, "keep-img-data-url", false, "Keep image data URLs")
+	readerCmd.Flags().BoolVar(&readerWithImagesSum, "with-images-summary", false, "Include image summary")
+	readerCmd.Flags().BoolVar(&readerWithLinksSum, "with-links-summary", false, "Include links summary")
+	readerCmd.Flags().BoolVar(&readerNoRetainImages, "no-retain-images", false, "Do not retain images")
+	readerCmd.Flags().BoolVar(&readerJSON, "json", false, "Output in JSON format")
 }

@@ -4,22 +4,29 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"mime/multipart"
+	"golang.org/x/sync/errgroup"
 )
 
 // ClientConfig holds all configuration for the ZAI client.
 // Injected at construction time - no global state.
 type ClientConfig struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
-	Verbose bool
+	APIKey     string
+	BaseURL    string
+	Model      string
+	Timeout    time.Duration
+	Verbose    bool
+	RetryConfig RetryConfig
 }
 
 // DefaultChatOptions returns sensible defaults for CLI usage.
@@ -70,10 +77,12 @@ func (l *StderrLogger) Error(format string, args ...any) {
 // ChatClient interface for testability (ISP compliance).
 type ChatClient interface {
 	Chat(ctx context.Context, prompt string, opts ChatOptions) (string, error)
+	Vision(ctx context.Context, prompt string, imageBase64 string, opts VisionOptions) (string, error)
 	ListModels(ctx context.Context) ([]Model, error)
 	GenerateImage(ctx context.Context, prompt string, opts ImageOptions) (*ImageResponse, error)
 	FetchWebContent(ctx context.Context, url string, opts *WebReaderOptions) (*WebReaderResponse, error)
 	SearchWeb(ctx context.Context, query string, opts SearchOptions) (*WebSearchResponse, error)
+	TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error)
 }
 
 // HistoryStore interface for storage abstraction (ISP compliance).
@@ -154,6 +163,11 @@ func NewClientWithDeps(cfg ClientConfig, logger Logger, history HistoryStore, de
 	}
 }
 
+// HTTPClient returns the underlying HTTP client for connection reuse.
+func (c *Client) HTTPClient() HTTPDoer {
+	return c.httpClient
+}
+
 // Chat sends a prompt and returns the response.
 // Orchestrates content building, URL enrichment, and request execution.
 func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (string, error) {
@@ -162,7 +176,7 @@ func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (str
 	}
 
 	// Build message content (with optional file)
-	content, err := c.buildContent(prompt, opts.FilePath)
+	content, err := c.buildContent(ctx, prompt, opts.FilePath)
 	if err != nil {
 		return "", err
 	}
@@ -178,8 +192,8 @@ func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (str
 		opts.Thinking = &opts.Think
 	}
 
-	// Execute request
-	response, usage, err := c.doRequest(ctx, messages, opts)
+	// Execute request with retry
+	response, usage, err := c.doRequestWithRetry(ctx, messages, opts)
 	if err != nil {
 		return "", err
 	}
@@ -191,6 +205,7 @@ func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (str
 }
 
 // enrichWithURLContent fetches web content for URLs in the prompt if web is enabled.
+// Uses concurrent fetching with errgroup for improved performance.
 func (c *Client) enrichWithURLContent(ctx context.Context, prompt, content string, opts ChatOptions) string {
 	if !c.isWebEnabled(opts) {
 		return content
@@ -202,13 +217,41 @@ func (c *Client) enrichWithURLContent(ctx context.Context, prompt, content strin
 	}
 
 	webOpts := c.defaultWebReaderOptions(opts.WebTimeout)
-	for _, url := range urls {
-		webResp, err := c.FetchWebContent(ctx, url, webOpts)
-		if err != nil {
-			c.logger.Warn("Failed to fetch web content from %s: %v", url, err)
-			continue
+
+	// Use errgroup for concurrent URL fetching
+	g, ctx := errgroup.WithContext(ctx)
+	results := make([]struct {
+		url   string
+		title string
+		body  string
+	}, len(urls))
+
+	// Fetch all URLs concurrently
+	for i, url := range urls {
+		i, url := i, url // capture loop variables
+		g.Go(func() error {
+			webResp, err := c.FetchWebContent(ctx, url, webOpts)
+			if err != nil {
+				c.logger.Warn("Failed to fetch web content from %s: %v", url, err)
+				return nil // Don't fail entire group for single URL error
+			}
+			results[i].url = url
+			results[i].title = webResp.ReaderResult.Title
+			results[i].body = webResp.ReaderResult.Content
+			return nil
+		})
+	}
+
+	// Wait for all fetches to complete
+	if err := g.Wait(); err != nil {
+		c.logger.Warn("Error fetching web content: %v", err)
+	}
+
+	// Append results in original order
+	for _, r := range results {
+		if r.url != "" { // Only append successful fetches
+			content += "\n\n" + FormatWebContent(r.url, r.title, r.body)
 		}
-		content += "\n\n" + FormatWebContent(url, webResp.ReaderResult.Title, webResp.ReaderResult.Content)
 	}
 
 	return content
@@ -262,7 +305,7 @@ func (c *Client) saveToHistory(prompt, response string, usage Usage) {
 }
 
 // buildContent combines prompt with optional file contents or URL content.
-func (c *Client) buildContent(prompt, filePath string) (string, error) {
+func (c *Client) buildContent(ctx context.Context, prompt, filePath string) (string, error) {
 	if filePath == "" {
 		return prompt, nil
 	}
@@ -270,7 +313,6 @@ func (c *Client) buildContent(prompt, filePath string) (string, error) {
 	// Check if it's a URL
 	if strings.HasPrefix(filePath, "http://") || strings.HasPrefix(filePath, "https://") {
 		// Fetch web content
-		ctx := context.Background()
 		webOpts := &WebReaderOptions{
 			ReturnFormat: "markdown",
 		}
@@ -308,6 +350,57 @@ func (c *Client) buildMessages(content string, opts ChatOptions) []Message {
 	})
 
 	return messages
+}
+
+// isRetryableError checks if an error should trigger a retry.
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Network errors: timeout, connection refused, etc.
+	var netErr interface{ Timeout() bool }
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	// Check for specific error patterns
+	errStr := err.Error()
+	retryablePatterns := []string{
+		"connection refused",
+		"connection reset",
+		"temporary failure",
+		"timeout",
+		"503", // Service Unavailable
+		"502", // Bad Gateway
+		"504", // Gateway Timeout
+	}
+
+	for _, pattern := range retryablePatterns {
+		if strings.Contains(strings.ToLower(errStr), pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// calculateBackoff calculates exponential backoff with jitter.
+func calculateBackoff(attempt int, initialBackoff, maxBackoff time.Duration) time.Duration {
+	// Exponential backoff: initial * 2^(attempt-1)
+	backoff := initialBackoff * time.Duration(1<<uint(attempt-1))
+
+	// Cap at max backoff
+	if backoff > maxBackoff {
+		backoff = maxBackoff
+	}
+
+	// Add jitter (±12.5%, centered - so jitter can add or subtract up to 12.5%)
+	// This ensures we never go below the base value by more than 12.5%
+	jitterRange := float64(backoff) * 0.125
+	jitter := time.Duration(jitterRange * (2.0*rand.Float64() - 1.0))
+
+	return backoff + jitter
 }
 
 // doRequest executes the HTTP request to Z.AI API.
@@ -391,6 +484,63 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 		chatResp.Usage.CompletionTokens)
 
 	return chatResp.Choices[0].Message.Content, chatResp.Usage, nil
+}
+
+// doRequestWithRetry executes doRequest with exponential backoff retry logic.
+func (c *Client) doRequestWithRetry(ctx context.Context, messages []Message, opts ChatOptions) (string, Usage, error) {
+	var lastErr error
+
+	// Apply defaults for zero values
+	maxAttempts := c.config.RetryConfig.MaxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = 1 // No retry if not configured
+	}
+
+	initialBackoff := c.config.RetryConfig.InitialBackoff
+	if initialBackoff < 1 {
+		initialBackoff = 1 * time.Second
+	}
+
+	maxBackoff := c.config.RetryConfig.MaxBackoff
+	if maxBackoff < 1 {
+		maxBackoff = 30 * time.Second
+	}
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Check context before attempting
+		select {
+		case <-ctx.Done():
+			return "", Usage{}, ctx.Err()
+		default:
+		}
+
+		// On retry (not first attempt), log and wait
+		if attempt > 1 {
+			backoff := calculateBackoff(attempt, initialBackoff, maxBackoff)
+			c.logger.Info("Retrying request (attempt %d/%d) after %v: %v", attempt, maxAttempts, backoff, lastErr)
+
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return "", Usage{}, ctx.Err()
+			}
+		}
+
+		// Execute request
+		response, usage, err := c.doRequest(ctx, messages, opts)
+		if err == nil {
+			return response, usage, nil
+		}
+
+		lastErr = err
+
+		// Don't retry if error is not retryable or this was the last attempt
+		if !isRetryableError(err) || attempt == maxAttempts {
+			break
+		}
+	}
+
+	return "", Usage{}, fmt.Errorf("request failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // ListModels fetches available models from the API.
@@ -729,4 +879,233 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 	}
 
 	return &searchResp, nil
+}
+
+// Vision analyzes an image using Z.AI's vision model (glm-4.6v).
+// imageBase64 should be a data URI like "data:image/jpeg;base64,<base64-data>" or a raw base64 string.
+func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, opts VisionOptions) (string, error) {
+	if c.config.APIKey == "" {
+		return "", fmt.Errorf("API key is not configured")
+	}
+
+	// Validate prompt
+	if prompt == "" {
+		prompt = "What do you see in this image? Please describe it in detail."
+	}
+
+	// Validate image input
+	if imageBase64 == "" {
+		return "", fmt.Errorf("image data is required")
+	}
+
+	// Build vision model
+	model := opts.Model
+	if model == "" {
+		model = "glm-4.6v" // Default vision model
+	}
+
+	// Build multimodal messages
+	messages := []VisionMessage{
+		{
+			Role: "user",
+			Content: []ContentPart{
+				{
+					Type: "text",
+					Text: prompt,
+				},
+				{
+					Type: "image_url",
+					ImageURL: &ImageURLContent{
+						URL: imageBase64,
+					},
+				},
+			},
+		},
+	}
+
+	// Build request
+	reqData := VisionRequest{
+		Model:    model,
+		Messages: messages,
+		Stream:   false,
+	}
+
+	// Apply optional overrides
+	if opts.Temperature != nil {
+		reqData.Temperature = *opts.Temperature
+	} else {
+		reqData.Temperature = 0.3 // Lower temp for vision
+	}
+
+	if opts.MaxTokens != nil {
+		reqData.MaxTokens = *opts.MaxTokens
+	} else {
+		reqData.MaxTokens = 4096
+	}
+
+	if opts.TopP != nil {
+		reqData.TopP = *opts.TopP
+	} else {
+		reqData.TopP = 0.9
+	}
+
+	jsonData, err := json.Marshal(reqData)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal vision request: %w", err)
+	}
+
+	// Use chat/completions endpoint for vision
+	url := fmt.Sprintf("%s/chat/completions", c.config.BaseURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("failed to create vision request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
+	req.Header.Set("Accept-Language", "en-US,en")
+
+	c.logger.Info("Sending vision request to: %s", url)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send vision request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read vision response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("vision API error: %d - %s", resp.StatusCode, string(body))
+	}
+
+	var chatResp ChatResponse
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal vision response: %w", err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return "", fmt.Errorf("no choices in vision response")
+	}
+
+	c.logger.Info("Vision complete: %d tokens (prompt: %d, completion: %d)",
+		chatResp.Usage.TotalTokens,
+		chatResp.Usage.PromptTokens,
+		chatResp.Usage.CompletionTokens)
+
+	return chatResp.Choices[0].Message.Content, nil
+}
+
+// TranscribeAudio transcribes an audio file using Z.AI's ASR model.
+func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error) {
+	if c.config.APIKey == "" {
+		return nil, fmt.Errorf("API key is not configured")
+	}
+
+	// Validate audio file
+	if audioPath == "" {
+		return nil, fmt.Errorf("audio file path is required")
+	}
+
+	// Open audio file
+	file, err := os.Open(audioPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open audio file: %w", err)
+	}
+	defer file.Close()
+
+	// Check file size
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get file info: %w", err)
+	}
+	const maxFileSize = 25 * 1024 * 1024 // 25MB
+	if stat.Size() > maxFileSize {
+		return nil, fmt.Errorf("audio file too large: %d bytes (max: %d MB)", stat.Size(), maxFileSize/1024/1024)
+	}
+
+	// Build model
+	model := opts.Model
+	if model == "" {
+		model = "glm-asr-2512"
+	}
+
+	// Build multipart form
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	// Add file
+	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create form file: %w", err)
+	}
+	if _, err := io.Copy(part, file); err != nil {
+		return nil, fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	// Add model
+	writer.WriteField("model", model)
+
+	// Add optional fields
+	if opts.Prompt != "" {
+		writer.WriteField("prompt", opts.Prompt)
+	}
+	if opts.Stream {
+		writer.WriteField("stream", "true")
+	}
+	if opts.UserID != "" {
+		writer.WriteField("user_id", opts.UserID)
+	}
+	if opts.RequestID != "" {
+		writer.WriteField("request_id", opts.RequestID)
+	}
+	if len(opts.Hotwords) > 0 {
+		hotwordsJSON, err := json.Marshal(opts.Hotwords)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal hotwords: %w", err)
+		}
+		writer.WriteField("hotwords", string(hotwordsJSON))
+	}
+
+	writer.Close()
+
+	// Build request
+	url := fmt.Sprintf("%s/audio/transcriptions", c.config.BaseURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
+	req.Header.Set("Accept-Language", "en-US,en")
+
+	c.logger.Info("Sending audio transcription request to: %s", url)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("transcription API error: %d - %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var transcriptionResp TranscriptionResponse
+	if err := json.Unmarshal(bodyBytes, &transcriptionResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	c.logger.Info("Transcription complete: %d chars, model: %s", len(transcriptionResp.Text), transcriptionResp.Model)
+
+	return &transcriptionResp, nil
 }

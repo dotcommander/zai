@@ -187,3 +187,14 @@ func NewSearchHistoryEntry(timestamp time.Time, query string, resp *WebSearchRes
 		Type:  "web_search",
 	}
 }
+
+// NewAudioHistoryEntry creates a history entry for audio transcription.
+func NewAudioHistoryEntry(text string, model string) HistoryEntry {
+	return HistoryEntry{
+		Timestamp: time.Now(),
+		Prompt:    "audio transcription",
+		Response:  text,
+		Model:     model,
+		Type:      "audio",
+	}
+}

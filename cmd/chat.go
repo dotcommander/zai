@@ -6,15 +6,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"zai/internal/app"
+	"github.com/garyblankenship/zai/internal/app"
 )
 
 var chatCmd = &cobra.Command{
@@ -120,6 +122,10 @@ func printStyledHelp() {
 
 // runChatREPL starts the interactive chat session.
 func runChatREPL() error {
+	// Set up signal handling for graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	client := newClient()
 	baseOpts := app.DefaultChatOptions()
 	baseOpts.FilePath = viper.GetString("file")
@@ -136,6 +142,16 @@ func runChatREPL() error {
 	var sessionHistory []string
 
 	for {
+		// Check if context was cancelled (Ctrl+C)
+		select {
+		case <-ctx.Done():
+			fmt.Println()
+			fmt.Println(theme.Dim.Render("Goodbye!"))
+			fmt.Println()
+			return nil
+		default:
+		}
+
 		fmt.Print(theme.Prompt.Render("you> "))
 		if !scanner.Scan() {
 			break
@@ -164,7 +180,7 @@ func runChatREPL() error {
 			go animateThinking(nil, &stop)
 
 			start := time.Now()
-			resp, err := client.SearchWeb(context.Background(), query, opts)
+			resp, err := client.SearchWeb(ctx, query, opts)
 			stop.Store(true)
 			time.Sleep(100 * time.Millisecond) // Let spinner clear
 
@@ -234,7 +250,7 @@ func runChatREPL() error {
 			webOpts := &app.WebReaderOptions{
 				ReturnFormat: "markdown",
 			}
-			resp, err := client.FetchWebContent(context.Background(), url, webOpts)
+			resp, err := client.FetchWebContent(ctx, url, webOpts)
 			stop.Store(true)
 			time.Sleep(100 * time.Millisecond) // Let spinner clear
 
@@ -319,7 +335,7 @@ func runChatREPL() error {
 				Count:         5,
 				RecencyFilter: "oneWeek",
 			}
-			results, err := client.SearchWeb(context.Background(), input, searchOpts)
+			results, err := client.SearchWeb(ctx, input, searchOpts)
 			if err == nil && len(results.SearchResult) > 0 {
 				searchContext := app.FormatSearchForContext(results.SearchResult)
 				messageToSend = searchContext + "\n\nUser question: " + input
@@ -330,7 +346,7 @@ func runChatREPL() error {
 		var stop atomic.Bool
 		go animateThinking(nil, &stop)
 
-		response, err := client.Chat(context.Background(), messageToSend, opts)
+		response, err := client.Chat(ctx, messageToSend, opts)
 		stop.Store(true)
 		time.Sleep(100 * time.Millisecond) // Let spinner clear
 
