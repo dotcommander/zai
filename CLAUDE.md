@@ -11,7 +11,7 @@ go build -o bin/zai .           # Build
 echo "text" | ./bin/zai         # Stdin pipe
 ./bin/zai -f file.go "explain"  # With file context
 ./bin/zai -f https://url "sum"  # -f supports URLs too
-./bin/zai web <url>             # Fetch web content
+./bin/zai reader <url>          # Fetch web content
 ./bin/zai search "query"        # Web search
 ./bin/zai --search "news"       # Search-augmented generation
 ./bin/zai image "wizard"        # AI-enhanced image generation
@@ -76,12 +76,12 @@ you> search "latest AI news" -c 3
 you> /search "golang patterns" -r oneMonth
 ```
 
-### Web Reader
+### Reader
 ```bash
-zai web https://example.com                 # Fetch and display
-zai web https://example.com --format text   # Plain text format
-zai web https://example.com --no-cache      # Disable caching
-zai web https://example.com --timeout 30    # Custom timeout
+zai reader https://example.com                 # Fetch and display
+zai reader https://example.com --format text   # Plain text format
+zai reader https://example.com --no-cache      # Disable caching
+zai reader https://example.com --timeout 30    # Custom timeout
 ```
 
 ### Auto Web Content in Chat
