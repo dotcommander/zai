@@ -42,13 +42,13 @@ var audioCmd = &cobra.Command{
 
 Examples:
   zai audio -f recording.wav
-  zai audio -f speech.mp3 -m glm-asr-2512
-  zai audio -f interview.wav -p "Previous context"
+  zai audio -f speech.mp3 --model glm-asr-2512
+  zai audio -f interview.wav --prompt "Previous context"
   zai audio -f lecture.wav --hotwords "kubernetes,docker"
-  zai audio --video https://youtu.be/abc123
-  zai audio -f recording.wav --vad
-  zai audio -f recording.wav --resume
-  cat audio.wav | zai audio -f -
+  zai audio --video https://youtu.be/abc123  # YouTube support
+  zai audio -f recording.wav --vad  # Remove silence
+  zai audio -f recording.wav --resume  # Resume partial transcription
+  cat audio.wav | zai audio  # From stdin
 
 Supported formats: .wav, .mp3, .mp4, .m4a, .flac, .aac, .ogg
 Maximum file size: 25MB
@@ -106,10 +106,9 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error {
 			}
 		}
 		defer cleanupFiles()
-	} else if audioFile != "" && audioFile != "-" {
-		audioPath = audioFile
-	} else if audioFile == "-" || hasStdinData() {
+	} else if audioFile == "-" || (audioFile == "" && hasStdinData()) {
 		// Explicit -f - or auto-detected stdin
+		// Read from stdin and write to temp file
 		stdinPath, cleanup, err := createTempAudioFile()
 		if err != nil {
 			return fmt.Errorf("failed to create temp file: %w", err)
@@ -244,7 +243,6 @@ type AudioCache struct {
 
 // getCachePath returns the cache file path for a given source file.
 func getCachePath(sourcePath string) (string, error) {
-	// Create hash of source file path
 	data, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return "", err
@@ -289,7 +287,14 @@ func saveCache(cachePath string, cache *AudioCache) error {
 	return os.WriteFile(cachePath, data, 0644)
 }
 
-// transcribeChunks transcribes multiple audio chunks with caching and resume support.
+// chunkResult holds the result of transcribing a single chunk.
+type chunkResult struct {
+	index int
+	text  string
+	err   error
+}
+
+// transcribeChunks transcribes multiple audio chunks with caching, resume, and parallel processing.
 func transcribeChunks(ctx context.Context, chunks []string, cacheSourcePath, audioPath string) error {
 	// Get cache path using original source file for consistent cache keys
 	cachePath, err := getCachePath(cacheSourcePath)
@@ -314,70 +319,52 @@ func transcribeChunks(ctx context.Context, chunks []string, cacheSourcePath, aud
 			fmt.Fprintf(os.Stderr, "Warning: Could not clear cache: %v\n", err)
 		}
 		fmt.Fprintf(os.Stderr, "Cache cleared.\n")
+		cache = &AudioCache{Chunks: make(map[int]string)}
 	}
 
-	client := newClientWithoutHistory()
-
-	var fullText string
-	startIndex := 0
-
-	// If resuming, find where we left off
-	if audioResume && cachePath != "" {
-		for i := range chunks {
-			if _, ok := cache.Chunks[i]; !ok {
-				startIndex = i
-				break
-			}
-			if i == len(chunks)-1 {
-				startIndex = len(chunks) // All done
-			}
-		}
-		if startIndex > 0 {
-			fmt.Fprintf(os.Stderr, "Resuming from chunk %d/%d (cached: %d chunks)\n", startIndex+1, len(chunks), startIndex)
+	// Find chunks that need transcription (resume support)
+	pending := []int{}
+	for i := range chunks {
+		if _, ok := cache.Chunks[i]; !ok {
+			pending = append(pending, i)
 		}
 	}
 
-	for startIndex < len(chunks) {
-		chunk := chunks[startIndex]
-		fmt.Fprintf(os.Stderr, "Transcribing chunk %d/%d...\n", startIndex+1, len(chunks))
+	allDone := len(pending) == 0
+	if allDone {
+		fmt.Fprintf(os.Stderr, "All %d chunks already transcribed (from cache)\n", len(chunks))
+	} else {
+		fmt.Fprintf(os.Stderr, "Processing %d chunks in parallel...\n", len(pending))
+	}
 
-		opts := app.TranscriptionOptions{
-			Model:  audioModel,
-			Prompt: audioPrompt,
-		}
-
-		// Retry logic for network errors
-		var resp *app.TranscriptionResponse
-		for attempt := 1; attempt <= 3; attempt++ {
-			resp, err = client.TranscribeAudio(ctx, chunk, opts)
-			if err == nil {
-				break
+	// Process pending chunks in parallel
+	if !allDone {
+		results := transcribeParallel(ctx, chunks, pending)
+		for res := range results {
+			if res.err != nil {
+				if cachePath != "" {
+					saveCache(cachePath, cache)
+				}
+				return fmt.Errorf("chunk %d failed: %w", res.index+1, res.err)
 			}
-			if attempt < 3 {
-				fmt.Fprintf(os.Stderr, "  Retry %d/3: %v\n", attempt, err)
-				time.Sleep(time.Duration(attempt) * time.Second)
-			}
-		}
-		if err != nil {
-			// Save cache even on failure for partial progress
+			cache.Chunks[res.index] = res.text
 			if cachePath != "" {
-				saveCache(cachePath, cache)
-			}
-			return fmt.Errorf("chunk %d failed after 3 attempts: %w", startIndex+1, err)
-		}
-
-		// Save to cache
-		cache.Chunks[startIndex] = resp.Text
-		if cachePath != "" {
-			if err := saveCache(cachePath, cache); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: Could not save cache: %v\n", err)
+				if err := saveCache(cachePath, cache); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: Could not save cache: %v\n", err)
+				}
 			}
 		}
+	}
 
-		if fullText != "" {
-			fullText += "\n"
+	// Assemble final text in order
+	var fullText string
+	for i := range chunks {
+		if text, ok := cache.Chunks[i]; ok {
+			if fullText != "" {
+				fullText += "\n"
+			}
+			fullText += text
 		}
-		fullText += resp.Text
 	}
 
 	// Output results
@@ -393,6 +380,57 @@ func transcribeChunks(ctx context.Context, chunks []string, cacheSourcePath, aud
 	}
 
 	return nil
+}
+
+// transcribeParallel processes chunks concurrently using a worker pool.
+func transcribeParallel(ctx context.Context, chunks []string, pendingIndices []int) <-chan chunkResult {
+	numWorkers := 5
+	results := make(chan chunkResult, len(pendingIndices))
+	jobs := make(chan int, len(pendingIndices))
+
+	for w := 0; w < numWorkers; w++ {
+		go func(workerID int) {
+			client := newClientWithoutHistory()
+			opts := app.TranscriptionOptions{Model: audioModel, Prompt: audioPrompt}
+
+			for idx := range jobs {
+				var resp *app.TranscriptionResponse
+				var err error
+
+				for attempt := 1; attempt <= 3; attempt++ {
+					resp, err = client.TranscribeAudio(ctx, chunks[idx], opts)
+					if err == nil {
+						break
+					}
+					if attempt < 3 {
+						time.Sleep(time.Duration(attempt) * time.Second)
+					}
+				}
+
+				if err != nil {
+					results <- chunkResult{index: idx, err: err}
+				} else {
+					results <- chunkResult{index: idx, text: resp.Text}
+				}
+			}
+		}(w)
+	}
+
+	go func() {
+		for _, idx := range pendingIndices {
+			jobs <- idx
+		}
+		close(jobs)
+	}()
+
+	go func() {
+		for w := 0; w < numWorkers; w++ {
+			<-results
+		}
+		close(results)
+	}()
+
+	return results
 }
 
 // preprocessAudio converts audio to optimal format and optionally applies VAD.
