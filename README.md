@@ -101,16 +101,16 @@ zai chat --think                        # With reasoning mode
 - `clear` - Clear conversation history
 - `exit` or `Ctrl+D` - Exit chat
 
-### Web Content
+### Web Reader
 ```bash
-# Fetch and summarize web content
-zai web https://example.com
-zai web https://example.com --format text
-zai web https://example.com --no-cache
-zai web https://example.com --timeout 30
-zai web https://example.com --json         # output as JSON
+# Fetch and display web content
+zai reader https://example.com
+zai reader https://example.com --format text
+zai reader https://example.com --no-cache
+zai reader https://example.com --timeout 30
+zai reader https://example.com --json       # output as JSON
 
-# Auto-detect URLs in chat
+# Auto-detect URLs in prompts
 zai "Summarize https://example.com/article"
 ```
 
@@ -218,7 +218,7 @@ zai version                       # Show version, build time, commit
 |---------|-------------|
 | `chat` | Start interactive chat session (REPL) |
 | `search` | Search the web using Z.AI search engine |
-| `web` | Fetch and display web content |
+| `reader` | Fetch and display web content |
 | `image` | Generate images using Z.AI's image generation API |
 | `model` | Model management commands |
 | `history` | Show chat history |
@@ -248,7 +248,7 @@ The `--json` flag provides structured output for programmatic use and integratio
 ### Supported Commands
 - **Root (one-shot)**: `zai "prompt" --json`
 - **Search**: `zai search "query" --json`
-- **Web**: `zai web https://example.com --json`
+- **Reader**: `zai reader https://example.com --json`
 - **Model List**: `zai model list --json`
 - **History**: `zai history --json`
 
@@ -353,7 +353,7 @@ zai -f script.py "Convert this to JavaScript"
 ### Research Assistant
 ```bash
 zai search "Rust vs Go performance 2024"
-zai web https://arxiv.org/abs/2301.07041 "Summarize this paper"
+zai reader https://arxiv.org/abs/2301.07041 "Summarize this paper"
 ```
 
 ### Audio Transcription

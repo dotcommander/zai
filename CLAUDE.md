@@ -11,7 +11,7 @@ go build -o bin/zai .           # Build
 echo "text" | ./bin/zai         # Stdin pipe
 ./bin/zai -f file.go "explain"  # With file context
 ./bin/zai -f https://url "sum"  # -f supports URLs too
-./bin/zai reader <url>          # Fetch web content
+./bin/zai reader <url>          # Fetch web content (reader command)
 ./bin/zai search "query"        # Web search
 ./bin/zai --search "news"       # Search-augmented generation
 ./bin/zai image "wizard"        # AI-enhanced image generation
@@ -20,7 +20,7 @@ echo "text" | ./bin/zai         # Stdin pipe
 ## Install Globally
 
 ```bash
-ln -sf /Users/vampire/go/src/zai/bin/zai ~/go/bin/zai
+go build -o bin/zai . && ln -sf $(pwd)/bin/zai ~/go/bin/zai
 ```
 
 ## Configuration
@@ -176,8 +176,10 @@ cmd/
   chat.go     # Interactive REPL with conversation context and search
   history.go  # History viewing command
   search.go   # Web search command
-  web.go      # Web reader command
+  web.go      # Web reader command (reader subcommand)
   image.go    # Image generation command
+  vision.go   # Vision analysis command
+  audio.go    # Audio transcription command
   model.go    # Model management command
 internal/
   app/
@@ -187,7 +189,7 @@ internal/
     history.go  # File-based history storage
     utils.go    # URL detection, web content and search formatting
   config/
-    config.go   # Viper defaults and loading (includes web_search config)
+    config.go   # Viper defaults and loading
 ```
 
 **Design**: SOLID-compliant with dependency injection. Client takes `Logger` and `HistoryStore` interfaces.
