@@ -139,11 +139,31 @@ func enhanceImagePrompt(client *app.Client, prompt string) (string, error) {
 
 func runImageGeneration(prompt string) error {
 	client := newClient()
-
 	ctx, cancel := createContext(5 * time.Minute)
 	defer cancel()
 
-	// Build image options
+	// Build options and enhance prompt
+	opts := buildImageOptions()
+	finalPrompt := buildFinalPrompt(client, prompt)
+
+	// Generate image
+	fmt.Printf("\n🖼️  Generating image...\n")
+	response, err := client.GenerateImage(ctx, finalPrompt, opts)
+	if err != nil {
+		return fmt.Errorf("failed to generate image: %w", err)
+	}
+
+	imageData := response.Data[0]
+
+	// Save to history (non-blocking)
+	saveToHistory(prompt, imageData, opts.Model)
+
+	// Display and handle the result
+	return displayImageResult(imageData, finalPrompt, imageSize)
+}
+
+// buildImageOptions creates image options from command line flags and config.
+func buildImageOptions() app.ImageOptions {
 	opts := app.ImageOptions{
 		Quality: imageQuality,
 		Size:    imageSize,
@@ -159,78 +179,157 @@ func runImageGeneration(prompt string) error {
 		}
 	}
 
-	// Enhance prompt if enabled
-	finalPrompt := prompt
-	if shouldEnhancePrompt() {
-		fmt.Printf("🎨 Original: %s\n", prompt)
-		fmt.Printf("✨ Enhancing prompt...\n")
-		enhanced, err := enhanceImagePrompt(client, prompt)
-		if err != nil {
-			fmt.Printf("⚠️  Enhancement failed, using original: %v\n", err)
-		} else {
-			// Combine original + enhanced for best results
-			finalPrompt = prompt + ". " + enhanced
-			fmt.Printf("✨ Enhanced: %s\n", enhanced)
-		}
-	} else {
-		fmt.Printf("🎨 Generating image: %s\n", prompt)
+	return opts
+}
+
+// buildFinalPrompt creates the final prompt by optionally enhancing the original.
+func buildFinalPrompt(client *app.Client, originalPrompt string) string {
+	if !shouldEnhancePrompt() {
+		fmt.Printf("🎨 Generating image: %s\n", originalPrompt)
+		return originalPrompt
 	}
 
-	// Generate image
-	fmt.Printf("\n🖼️  Generating image...\n")
-	response, err := client.GenerateImage(ctx, finalPrompt, opts)
+	fmt.Printf("🎨 Original: %s\n", originalPrompt)
+	fmt.Printf("✨ Enhancing prompt...\n")
+
+	enhanced, err := enhanceImagePrompt(client, originalPrompt)
 	if err != nil {
-		return fmt.Errorf("failed to generate image: %w", err)
+		fmt.Printf("⚠️  Enhancement failed, using original: %v\n", err)
+		return originalPrompt
 	}
 
-	imageData := response.Data[0]
+	// Combine original + enhanced for best results
+	finalPrompt := originalPrompt + ". " + enhanced
+	fmt.Printf("✨ Enhanced: %s\n", enhanced)
+	return finalPrompt
+}
 
-	// Save to history (non-blocking, log errors)
-	historyStore := app.NewFileHistoryStore("")
-	historyEntry := app.NewImageHistoryEntry(prompt, imageData, opts.Model)
-	if err := historyStore.Save(historyEntry); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to save to history: %v\n", err)
-	}
+// ImageResult represents the structured result of image generation.
+type ImageResult struct {
+	Data       app.ImageData
+	Prompt     string
+	Size       string
+	OutputPath string
+	SaveError  error
+}
 
-	// Display basic info
+// ImageOutputHandler handles output operations for image results.
+type ImageOutputHandler interface {
+	PrintSuccess(result *ImageResult)
+	PrintSaveError(err error)
+	PrintCopyError(err error)
+	PrintViewerError(err error)
+	PrintSaveSuccess(path string)
+	PrintCopySuccess()
+}
+
+// DefaultImageOutputHandler prints to stdout/stderr.
+type DefaultImageOutputHandler struct{}
+
+func (h *DefaultImageOutputHandler) PrintSuccess(result *ImageResult) {
 	fmt.Printf("\n✅ Image generated successfully!\n")
-	if imageData.Width > 0 && imageData.Height > 0 {
-		fmt.Printf("📐 Size: %dx%d\n", imageData.Width, imageData.Height)
+	if result.Data.Width > 0 && result.Data.Height > 0 {
+		fmt.Printf("📐 Size: %dx%d\n", result.Data.Width, result.Data.Height)
 	} else {
-		fmt.Printf("📐 Size: %s\n", imageSize) // Use the requested size
+		fmt.Printf("📐 Size: %s\n", result.Size)
 	}
-	fmt.Printf("🔗 URL: %s\n", imageData.URL)
+	fmt.Printf("🔗 URL: %s\n", result.Data.URL)
 	fmt.Printf("⏰ Expires: 30 days from now\n")
+}
 
-	// Auto-save to current directory if no output specified
-	outputPath := imageOutput
+func (h *DefaultImageOutputHandler) PrintSaveError(err error) {
+	fmt.Printf("⚠️  Warning: Failed to save image: %v\n", err)
+}
+
+func (h *DefaultImageOutputHandler) PrintCopyError(err error) {
+	fmt.Printf("⚠️  Warning: Failed to copy to clipboard: %v\n", err)
+}
+
+func (h *DefaultImageOutputHandler) PrintViewerError(err error) {
+	fmt.Printf("⚠️  Warning: Failed to open image viewer: %v\n", err)
+}
+
+func (h *DefaultImageOutputHandler) PrintSaveSuccess(path string) {
+	fmt.Printf("💾 Saved to: %s\n", path)
+}
+
+func (h *DefaultImageOutputHandler) PrintCopySuccess() {
+	fmt.Printf("📋 Copied URL to clipboard\n")
+}
+
+// ImageOutputConfig holds configuration for image output operations.
+type ImageOutputConfig struct {
+	Copy   bool
+	Show   bool
+	Output string
+}
+
+// ProcessImageResult processes the image result and handles all output operations.
+func ProcessImageResult(result *ImageResult, cfg ImageOutputConfig, handler ImageOutputHandler, saver *ImageSaver) error {
+	// Print success message
+	handler.PrintSuccess(result)
+
+	// Determine output path
+	outputPath := cfg.Output
 	if outputPath == "" {
-		// Generate filename from timestamp
 		timestamp := time.Now().Format("20060102-150405")
 		outputPath = fmt.Sprintf("zai-image-%s.png", timestamp)
 	}
 
-	if err := saveImageToDisk(client.HTTPClient(), imageData.URL, outputPath); err != nil {
-		fmt.Printf("⚠️  Warning: Failed to save image: %v\n", err)
+	// Save to disk
+	saveResult := saver.Save(result.Data.URL, outputPath)
+	if saveResult.Error != nil {
+		handler.PrintSaveError(saveResult.Error)
 	} else {
-		fmt.Printf("💾 Saved to: %s\n", outputPath)
+		handler.PrintSaveSuccess(outputPath)
 	}
 
-	if imageCopy {
-		if err := copyToClipboard(imageData.URL); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to copy to clipboard: %v\n", err)
+	// Copy to clipboard
+	if cfg.Copy {
+		if err := copyToClipboard(result.Data.URL); err != nil {
+			handler.PrintCopyError(err)
 		} else {
-			fmt.Printf("📋 Copied URL to clipboard\n")
+			handler.PrintCopySuccess()
 		}
 	}
 
-	if imageShow {
-		if err := openImageViewer(imageData.URL); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to open image viewer: %v\n", err)
+	// Open in viewer
+	if cfg.Show {
+		if err := openImageViewer(result.Data.URL); err != nil {
+			handler.PrintViewerError(err)
 		}
 	}
 
 	return nil
+}
+
+// displayImageResult handles displaying, saving, and opening the generated image.
+func displayImageResult(imageData app.ImageData, prompt, size string) error {
+	result := &ImageResult{
+		Data:   imageData,
+		Prompt: prompt,
+		Size:   size,
+	}
+
+	cfg := ImageOutputConfig{
+		Copy:   imageCopy,
+		Show:   imageShow,
+		Output: imageOutput,
+	}
+
+	handler := &DefaultImageOutputHandler{}
+	saver := NewImageSaver(nil)
+
+	return ProcessImageResult(result, cfg, handler, saver)
+}
+
+// saveToHistory saves the image to history store.
+func saveToHistory(prompt string, imageData app.ImageData, model string) {
+	historyStore := app.NewFileHistoryStore("")
+	historyEntry := app.NewImageHistoryEntry(prompt, imageData, model)
+	if err := historyStore.Save(historyEntry); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to save to history: %v\n", err)
+	}
 }
 
 func runImageModelList() error {
@@ -269,47 +368,75 @@ func runImageModelList() error {
 	return nil
 }
 
-// saveImageToDisk downloads an image from URL and saves to file
-// Uses provided HTTPDoer for connection pooling.
-func saveImageToDisk(client app.HTTPDoer, url, filePath string) error {
+// ImageSaver handles saving images to disk.
+type ImageSaver struct {
+	httpClient app.HTTPDoer
+}
+
+// NewImageSaver creates an ImageSaver with the provided HTTP client.
+func NewImageSaver(httpClient app.HTTPDoer) *ImageSaver {
+	if httpClient == nil {
+		httpClient = &http.Client{}
+	}
+	return &ImageSaver{httpClient: httpClient}
+}
+
+// ImageSaveResult contains the result of saving an image.
+type ImageSaveResult struct {
+	FilePath string
+	URL      string
+	Size     int64
+	Error    error
+}
+
+// Save downloads an image from URL and saves to file.
+func (s *ImageSaver) Save(url, filePath string) *ImageSaveResult {
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
 	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
+			return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to create directory: %w", err)}
 		}
 	}
 
-	// Download the image using shared HTTP client
+	// Download the image
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to create request: %w", err)}
 	}
 
-	resp, err := client.Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to download image: %w", err)
+		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to download image: %w", err)}
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download image: status %d", resp.StatusCode)
+		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to download image: status %d", resp.StatusCode)}
 	}
 
 	// Create output file
 	out, err := os.Create(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
+		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to create file: %w", err)}
 	}
 	defer out.Close()
 
 	// Copy response body to file
-	_, err = io.Copy(out, resp.Body)
+	size, err := io.Copy(out, resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to write image: %w", err)
+		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to write image: %w", err)}
 	}
 
-	return nil
+	return &ImageSaveResult{FilePath: filePath, URL: url, Size: size, Error: nil}
+}
+
+// saveImageToDisk downloads an image from URL and saves to file.
+// Uses provided HTTPDoer for connection pooling.
+func saveImageToDisk(client app.HTTPDoer, url, filePath string) error {
+	saver := NewImageSaver(client)
+	result := saver.Save(url, filePath)
+	return result.Error
 }
 
 // copyToClipboard copies URL to clipboard (macOS, Linux, Windows)
