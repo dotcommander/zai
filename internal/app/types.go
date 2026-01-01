@@ -6,7 +6,7 @@ import "time"
 type ChatRequest struct {
 	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
-	Stream      bool      `json:"stream"`
+	Stream      bool      `json:"stream"` // Reserved for future streaming API support
 	Temperature float64   `json:"temperature,omitempty"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	TopP        float64   `json:"top_p,omitempty"`
@@ -231,12 +231,12 @@ type RetryConfig struct {
 
 // VisionRequest represents a vision/image analysis API request.
 type VisionRequest struct {
-	Model       string        `json:"model"`
+	Model       string          `json:"model"`
 	Messages    []VisionMessage `json:"messages"`
-	Stream      bool          `json:"stream"`
-	Temperature float64       `json:"temperature,omitempty"`
-	MaxTokens   int           `json:"max_tokens,omitempty"`
-	TopP        float64       `json:"top_p,omitempty"`
+	Stream      bool            `json:"stream"` // Reserved for future streaming API support
+	Temperature float64         `json:"temperature,omitempty"`
+	MaxTokens   int             `json:"max_tokens,omitempty"`
+	TopP        float64         `json:"top_p,omitempty"`
 }
 
 // VisionMessage represents a message in vision API (supports multimodal content).

@@ -15,7 +15,13 @@ import (
 	"time"
 
 	"mime/multipart"
+
+	"github.com/garyblankenship/zai/internal/app/utils"
 	"golang.org/x/sync/errgroup"
+)
+
+const (
+	maxAudioFileSize = 25 * 1024 * 1024 // 25MB
 )
 
 // ClientConfig holds all configuration for the ZAI client.
@@ -75,15 +81,53 @@ func (l *StderrLogger) Error(format string, args ...any) {
 }
 
 // ChatClient interface for testability (ISP compliance).
+// Provides the main chat functionality.
 type ChatClient interface {
 	Chat(ctx context.Context, prompt string, opts ChatOptions) (string, error)
+}
+
+// VisionClient interface for image analysis (ISP compliance).
+type VisionClient interface {
 	Vision(ctx context.Context, prompt string, imageBase64 string, opts VisionOptions) (string, error)
-	ListModels(ctx context.Context) ([]Model, error)
+}
+
+// ImageClient interface for image generation (ISP compliance).
+type ImageClient interface {
 	GenerateImage(ctx context.Context, prompt string, opts ImageOptions) (*ImageResponse, error)
+}
+
+// ModelClient interface for model listing (ISP compliance).
+type ModelClient interface {
+	ListModels(ctx context.Context) ([]Model, error)
+}
+
+// WebReaderClient interface for web content fetching (ISP compliance).
+type WebReaderClient interface {
 	FetchWebContent(ctx context.Context, url string, opts *WebReaderOptions) (*WebReaderResponse, error)
+}
+
+// WebSearchClient interface for web searching (ISP compliance).
+type WebSearchClient interface {
 	SearchWeb(ctx context.Context, query string, opts SearchOptions) (*WebSearchResponse, error)
+}
+
+// AudioClient interface for audio transcription (ISP compliance).
+type AudioClient interface {
 	TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error)
 }
+
+// FullClient composes all client interfaces into one (backward compatibility).
+type FullClient interface {
+	ChatClient
+	VisionClient
+	ImageClient
+	ModelClient
+	WebReaderClient
+	WebSearchClient
+	AudioClient
+}
+
+// Client implements all client interfaces with Z.AI API.
 
 // HistoryStore interface for storage abstraction (ISP compliance).
 type HistoryStore interface {
@@ -97,17 +141,12 @@ type HTTPDoer interface {
 }
 
 // FileReader interface for file operations (DIP compliance, enables testing).
-type FileReader interface {
-	ReadFile(name string) ([]byte, error)
-}
+// Deprecated: Use utils.FileReader instead. Kept for backward compatibility.
+type FileReader = utils.FileReader
 
 // OSFileReader implements FileReader using os.ReadFile.
-type OSFileReader struct{}
-
-// ReadFile reads a file from the filesystem.
-func (r OSFileReader) ReadFile(name string) ([]byte, error) {
-	return os.ReadFile(name)
-}
+// Deprecated: Use utils.OSFileReader instead. Kept for backward compatibility.
+type OSFileReader = utils.OSFileReader
 
 // Client implements ChatClient with Z.AI API.
 type Client struct {
@@ -371,6 +410,7 @@ func isRetryableError(err error) bool {
 		"connection reset",
 		"temporary failure",
 		"timeout",
+		"429", // Too Many Requests (rate limit)
 		"503", // Service Unavailable
 		"502", // Bad Gateway
 		"504", // Gateway Timeout
@@ -403,14 +443,111 @@ func calculateBackoff(attempt int, initialBackoff, maxBackoff time.Duration) tim
 	return backoff + jitter
 }
 
+// buildJSONRequest creates an HTTP POST request with JSON data.
+func buildJSONRequest(baseURL, apiKey string, ctx context.Context, endpoint string, data interface{}) (*http.Request, error) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/%s", baseURL, endpoint)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	setJSONHeaders(req, apiKey)
+	return req, nil
+}
+
+// buildGetRequest creates an HTTP GET request.
+func buildGetRequest(baseURL, apiKey string, ctx context.Context, endpoint string) (*http.Request, error) {
+	url := fmt.Sprintf("%s/%s", baseURL, endpoint)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	return req, nil
+}
+
+// setJSONHeaders sets common headers for JSON requests.
+func setJSONHeaders(req *http.Request, apiKey string) {
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	req.Header.Set("Accept-Language", "en-US,en")
+}
+
+// executeJSONRequest executes a JSON POST request using HTTPDoer interface.
+func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqData interface{}) ([]byte, error) {
+	req, err := buildJSONRequest(c.config.BaseURL, c.config.APIKey, ctx, endpoint, reqData)
+	if err != nil {
+		return nil, err
+	}
+
+	c.logger.Info("Sending request to: %s", req.URL)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+	}
+
+	return body, nil
+}
+
+// executeGetRequest executes a GET request using HTTPDoer interface.
+func (c *Client) executeGetRequest(ctx context.Context, endpoint string) ([]byte, error) {
+	req, err := buildGetRequest(c.config.BaseURL, c.config.APIKey, ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	c.logger.Info("Sending request to: %s", req.URL)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+	}
+
+	return body, nil
+}
+
+
 // doRequest executes the HTTP request to Z.AI API.
 // Single place for all HTTP logic (DRY compliance).
 func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOptions) (string, Usage, error) {
+	// Use opts.Thinking (bool pointer) to build the API request structure
+	var thinking *Thinking
+	if opts.Thinking != nil && *opts.Thinking {
+		thinking = &Thinking{Type: "enabled"}
+	} else {
+		thinking = &Thinking{Type: "disabled"}
+	}
+
 	reqData := ChatRequest{
 		Model:       c.config.Model,
 		Messages:    messages,
 		Stream:      false,
-		Thinking:    &Thinking{Type: "disabled"},
+		Thinking:    thinking,
 	}
 
 	// Apply optional overrides
@@ -549,34 +686,13 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 		return nil, fmt.Errorf("API key is not configured")
 	}
 
-	url := fmt.Sprintf("%s/models", c.config.BaseURL)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
-
-	c.logger.Info("Fetching models from: %s", url)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
-	}
-
 	var modelsResp ModelsResponse
+	body, err := c.executeGetRequest(ctx, "models")
+	if err != nil {
+		return nil, err
+	}
 	if err := json.Unmarshal(body, &modelsResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal models response: %w", err)
 	}
 
 	return modelsResp.Data, nil
@@ -593,7 +709,7 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOpt
 		return nil, fmt.Errorf("invalid image options: %w", err)
 	}
 
-	// Build request
+	// Build request with defaults
 	model := opts.Model
 	if model == "" {
 		model = "cogview-4-250304" // Default image model
@@ -615,39 +731,11 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOpt
 		reqData.Size = "1024x1024"
 	}
 
-	jsonData, err := json.Marshal(reqData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal image request: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/images/generations", c.config.BaseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create image request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
-	req.Header.Set("Accept-Language", "en-US,en")
-
-	c.logger.Info("Sending image generation request to: %s", url)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send image request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read image response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("image generation API error: %d - %s", resp.StatusCode, string(body))
-	}
-
 	var imageResp ImageResponse
+	body, err := c.executeJSONRequest(ctx, "images/generations", reqData)
+	if err != nil {
+		return nil, fmt.Errorf("image generation API error: %w", err)
+	}
 	if err := json.Unmarshal(body, &imageResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal image response: %w", err)
 	}
@@ -708,40 +796,11 @@ func (c *Client) FetchWebContent(ctx context.Context, url string, opts *WebReade
 		}
 	}
 
-	jsonData, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal web reader request: %w", err)
-	}
-
-	// Use /paas/v4/reader endpoint
-	readerURL := fmt.Sprintf("%s/reader", c.config.BaseURL)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", readerURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create web reader request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
-	httpReq.Header.Set("Accept-Language", "en-US,en")
-
-	c.logger.Info("Fetching web content from: %s", url)
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch web content: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read web reader response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("web reader API error: %d - %s", resp.StatusCode, string(body))
-	}
-
 	var webResp WebReaderResponse
+	body, err := c.executeJSONRequest(ctx, "reader", req)
+	if err != nil {
+		return nil, fmt.Errorf("web reader API error: %w", err)
+	}
 	if err := json.Unmarshal(body, &webResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal web reader response: %w", err)
 	}
@@ -822,48 +881,19 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 		reqData.UserID = &opts.UserID
 	}
 
-	jsonData, err := json.Marshal(reqData)
+	var searchResp WebSearchResponse
+	body, err := c.executeJSONRequest(ctx, "web_search", reqData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal search request: %w", err)
-	}
-
-	// Use /paas/v4/web_search endpoint
-	url := fmt.Sprintf("%s/web_search", c.config.BaseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create search request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
-	req.Header.Set("Accept-Language", "en-US,en")
-
-	c.logger.Info("Searching web for: %s", query)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send search request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read search response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
 		// Try to parse error response
 		var apiErr struct {
 			Error   string `json:"error"`
 			Message string `json:"message"`
 		}
-		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error != "" {
+		if strings.Contains(err.Error(), "API error:") && json.Unmarshal([]byte(err.Error()[50:]), &apiErr) == nil && apiErr.Error != "" {
 			return nil, fmt.Errorf("search API error: %s - %s", apiErr.Error, apiErr.Message)
 		}
-		return nil, fmt.Errorf("search API error: %d - %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("search API error: %w", err)
 	}
-
-	var searchResp WebSearchResponse
 	if err := json.Unmarshal(body, &searchResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal search response: %w", err)
 	}
@@ -949,40 +979,11 @@ func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, 
 		reqData.TopP = 0.9
 	}
 
-	jsonData, err := json.Marshal(reqData)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal vision request: %w", err)
-	}
-
-	// Use chat/completions endpoint for vision
-	url := fmt.Sprintf("%s/chat/completions", c.config.BaseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("failed to create vision request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
-	req.Header.Set("Accept-Language", "en-US,en")
-
-	c.logger.Info("Sending vision request to: %s", url)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to send vision request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read vision response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("vision API error: %d - %s", resp.StatusCode, string(body))
-	}
-
 	var chatResp ChatResponse
+	body, err := c.executeJSONRequest(ctx, "chat/completions", reqData)
+	if err != nil {
+		return "", fmt.Errorf("vision API error: %w", err)
+	}
 	if err := json.Unmarshal(body, &chatResp); err != nil {
 		return "", fmt.Errorf("failed to unmarshal vision response: %w", err)
 	}
@@ -1010,21 +1011,15 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 		return nil, fmt.Errorf("audio file path is required")
 	}
 
-	// Open audio file
-	file, err := os.Open(audioPath)
+	// Read audio file using injected FileReader
+	data, err := c.fileReader.ReadFile(audioPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open audio file: %w", err)
+		return nil, fmt.Errorf("failed to read audio file: %w", err)
 	}
-	defer file.Close()
 
 	// Check file size
-	stat, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get file info: %w", err)
-	}
-	const maxFileSize = 25 * 1024 * 1024 // 25MB
-	if stat.Size() > maxFileSize {
-		return nil, fmt.Errorf("audio file too large: %d bytes (max: %d MB)", stat.Size(), maxFileSize/1024/1024)
+	if len(data) > maxAudioFileSize {
+		return nil, fmt.Errorf("audio file too large: %d bytes (max: %d MB)", len(data), maxAudioFileSize/1024/1024)
 	}
 
 	// Build model
@@ -1037,13 +1032,13 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
-	// Add file
+	// Add file from memory
 	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create form file: %w", err)
 	}
-	if _, err := io.Copy(part, file); err != nil {
-		return nil, fmt.Errorf("failed to copy file: %w", err)
+	if _, err := io.Copy(part, bytes.NewReader(data)); err != nil {
+		return nil, fmt.Errorf("failed to copy file data: %w", err)
 	}
 
 	// Add model
