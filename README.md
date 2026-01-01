@@ -2,9 +2,7 @@
 
 A fast, feature-rich CLI for [Z.AI](https://z.ai) GLM models.
 
-```bash
-zai "Explain quantum computing in simple terms"
-```
+![ZAI CLI](docs/screenshot.jpg)
 
 ## Features
 
