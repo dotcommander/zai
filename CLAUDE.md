@@ -109,6 +109,65 @@ zai image "logo" -o output.png    # Custom filename
 - **Auto-download**: Images saved to `zai-image-{timestamp}.png`
 - Combines original + enhanced prompt for best results
 
+### Vision
+```bash
+zai vision -f photo.jpg                     # Describe image
+zai vision -f screenshot.png "What text?"   # Extract text
+zai vision -f https://example.com/img.jpg   # Analyze URL
+zai vision -f chart.png -p "Explain trends" # With custom prompt
+```
+
+**Options:**
+- `-f, --file <path-or-url>`: Image file path or URL (required)
+- `-p, --prompt <text>`: Analysis prompt (default: "What do you see in this image?")
+- `-m, --model <name>`: Override vision model (default: glm-4.6v)
+- `-t, --temperature <0.0-1.0>`: Temperature (default: 0.3)
+
+### Audio
+```bash
+zai audio -f recording.wav                  # Transcribe audio file
+zai audio -f speech.mp3 --model glm-asr-2512 # With specific model
+zai audio -f interview.wav --prompt "Previous context" # With context
+zai audio -f lecture.wav --hotwords "kubernetes,docker" # Domain vocabulary
+zai audio --video https://youtu.be/abc123   # YouTube transcription
+zai audio -f recording.wav --vad           # Remove silence (reduces costs)
+zai audio -f recording.wav --resume        # Resume partial transcription
+cat audio.wav | zai audio                   # From stdin
+```
+
+**Options:**
+- `-f, --file <path>`: Audio file path
+- `-m, --model <name>`: ASR model (default: glm-asr-2512)
+- `-p, --prompt <text>`: Context from prior transcriptions (max 8000 chars)
+- `-l, --language <code>`: Language code (e.g., en, zh, ja)
+- `--hotwords <words>`: Comma-separated domain vocabulary (max 100)
+- `--stream`: Enable streaming transcription
+- `--json`: Output in JSON format
+- `--vad`: Apply Voice Activity Detection (remove silence)
+- `--video <url>`: YouTube video URL to transcribe
+- `--preprocess`: Auto-convert to 16kHz mono WAV (default: true)
+- `--resume`: Resume from cached transcription
+- `--clear-cache`: Clear cache and start fresh
+
+**Supported formats:** .wav, .mp3, .mp4, .m4a, .flac, .aac, .ogg
+**Max file size:** 25MB
+**Max duration:** 30 seconds per chunk (auto-splits larger files)
+
+## Retry Configuration
+
+```yaml
+api:
+  retry:
+    max_attempts: 3        # Maximum retry attempts (default: 3)
+    initial_backoff: 1s    # Initial backoff duration (default: 1s)
+    max_backoff: 30s       # Maximum backoff duration (default: 30s)
+```
+
+**Retry behavior:**
+- Exponential backoff with jitter
+- Automatic retry on network errors, timeouts, and 5xx/429 errors
+- Configurable via `api.retry.*` config keys
+
 ## Architecture
 
 ```
