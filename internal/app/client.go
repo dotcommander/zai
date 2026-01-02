@@ -116,6 +116,12 @@ type AudioClient interface {
 	TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error)
 }
 
+// VideoClient interface for video generation (ISP compliance).
+type VideoClient interface {
+	GenerateVideo(ctx context.Context, prompt string, opts VideoOptions) (*VideoGenerationResponse, error)
+	RetrieveVideoResult(ctx context.Context, taskID string) (*VideoResultResponse, error)
+}
+
 // FullClient composes all client interfaces into one (backward compatibility).
 type FullClient interface {
 	ChatClient
@@ -125,6 +131,7 @@ type FullClient interface {
 	WebReaderClient
 	WebSearchClient
 	AudioClient
+	VideoClient
 }
 
 // Client implements all client interfaces with Z.AI API.
@@ -207,11 +214,20 @@ func (c *Client) HTTPClient() HTTPDoer {
 	return c.httpClient
 }
 
+// requireAPIKey validates the API key is configured.
+// Returns an error with helpful message if not set.
+func (c *Client) requireAPIKey() error {
+	if c.config.APIKey == "" {
+		return fmt.Errorf("API key is not configured. Set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
+	}
+	return nil
+}
+
 // Chat sends a prompt and returns the response.
 // Orchestrates content building, URL enrichment, and request execution.
 func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (string, error) {
-	if c.config.APIKey == "" {
-		return "", fmt.Errorf("API key is not configured")
+	if err := c.requireAPIKey(); err != nil {
+		return "", err
 	}
 
 	// Build message content (with optional file)
@@ -682,8 +698,8 @@ func (c *Client) doRequestWithRetry(ctx context.Context, messages []Message, opt
 
 // ListModels fetches available models from the API.
 func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
-	if c.config.APIKey == "" {
-		return nil, fmt.Errorf("API key is not configured")
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
 	}
 
 	var modelsResp ModelsResponse
@@ -700,8 +716,8 @@ func (c *Client) ListModels(ctx context.Context) ([]Model, error) {
 
 // GenerateImage creates an image using the Z.AI image generation API.
 func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOptions) (*ImageResponse, error) {
-	if c.config.APIKey == "" {
-		return nil, fmt.Errorf("API key is not configured")
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
 	}
 
 	// Validate options
@@ -751,8 +767,8 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOpt
 
 // FetchWebContent retrieves and processes web content from a URL.
 func (c *Client) FetchWebContent(ctx context.Context, url string, opts *WebReaderOptions) (*WebReaderResponse, error) {
-	if c.config.APIKey == "" {
-		return nil, fmt.Errorf("API key is not configured")
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
 	}
 
 	// Validate URL
@@ -836,8 +852,8 @@ func validateImageOptions(opts ImageOptions) error {
 
 // SearchWeb performs a web search using Z.AI's search API.
 func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions) (*WebSearchResponse, error) {
-	if c.config.APIKey == "" {
-		return nil, fmt.Errorf("API key is not configured")
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
 	}
 
 	// Validate query
@@ -914,8 +930,8 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 // Vision analyzes an image using Z.AI's vision model (glm-4.6v).
 // imageBase64 should be a data URI like "data:image/jpeg;base64,<base64-data>" or a raw base64 string.
 func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, opts VisionOptions) (string, error) {
-	if c.config.APIKey == "" {
-		return "", fmt.Errorf("API key is not configured")
+	if err := c.requireAPIKey(); err != nil {
+		return "", err
 	}
 
 	// Validate prompt
@@ -1002,8 +1018,8 @@ func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, 
 
 // TranscribeAudio transcribes an audio file using Z.AI's ASR model.
 func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error) {
-	if c.config.APIKey == "" {
-		return nil, fmt.Errorf("API key is not configured")
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
 	}
 
 	// Validate audio file
@@ -1103,4 +1119,128 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	c.logger.Info("Transcription complete: %d chars, model: %s", len(transcriptionResp.Text), transcriptionResp.Model)
 
 	return &transcriptionResp, nil
+}
+
+// GenerateVideo creates a video using Z.AI's CogVideoX-3 API (async).
+func (c *Client) GenerateVideo(ctx context.Context, prompt string, opts VideoOptions) (*VideoGenerationResponse, error) {
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
+	}
+
+	// Build model
+	model := opts.Model
+	if model == "" {
+		model = "cogvideox-3" // Default video model
+	}
+
+	// Validate options
+	if err := validateVideoOptions(opts); err != nil {
+		return nil, fmt.Errorf("invalid video options: %w", err)
+	}
+
+	// Build request
+	reqData := VideoGenerationRequest{
+		Model:     model,
+		Prompt:    prompt,
+		ImageURL:  opts.ImageURLs,
+		Quality:   opts.Quality,
+		WithAudio: opts.WithAudio,
+		Size:      opts.Size,
+		FPS:       opts.FPS,
+		Duration:  opts.Duration,
+		RequestID: opts.RequestID,
+		UserID:    opts.UserID,
+	}
+
+	// Set defaults
+	if reqData.Quality == "" {
+		reqData.Quality = "speed"
+	}
+	if reqData.Size == "" {
+		reqData.Size = "1920x1080"
+	}
+	if reqData.FPS == 0 {
+		reqData.FPS = 30
+	}
+	if reqData.Duration == 0 {
+		reqData.Duration = 5
+	}
+
+	var videoResp VideoGenerationResponse
+	body, err := c.executeJSONRequest(ctx, "videos/generations", reqData)
+	if err != nil {
+		return nil, fmt.Errorf("video generation API error: %w", err)
+	}
+	if err := json.Unmarshal(body, &videoResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal video response: %w", err)
+	}
+
+	c.logger.Info("Video generation task created: %s (status: %s)", videoResp.ID, videoResp.TaskStatus)
+
+	return &videoResp, nil
+}
+
+// RetrieveVideoResult polls for async video generation result.
+func (c *Client) RetrieveVideoResult(ctx context.Context, taskID string) (*VideoResultResponse, error) {
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
+	}
+
+	// Validate task ID
+	if taskID == "" {
+		return nil, fmt.Errorf("task ID is required")
+	}
+
+	var resultResp VideoResultResponse
+	endpoint := fmt.Sprintf("async-result/%s", taskID)
+	body, err := c.executeGetRequest(ctx, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("retrieve video result API error: %w", err)
+	}
+	if err := json.Unmarshal(body, &resultResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal video result response: %w", err)
+	}
+
+	c.logger.Info("Video result retrieved: %s (status: %s)", taskID, resultResp.TaskStatus)
+
+	return &resultResp, nil
+}
+
+// validateVideoOptions checks if video options are valid.
+func validateVideoOptions(opts VideoOptions) error {
+	// Validate quality
+	if opts.Quality != "" && opts.Quality != "quality" && opts.Quality != "speed" {
+		return fmt.Errorf("invalid quality: %s (must be 'quality' or 'speed')", opts.Quality)
+	}
+
+	// Validate size format
+	if opts.Size != "" {
+		supportedSizes := map[string]bool{
+			"1280x720":  true, "720x1280": true,
+			"1024x1024": true,
+			"1920x1080": true, "1080x1920": true,
+			"2048x1080": true,
+			"3840x2160": true,
+		}
+		if !supportedSizes[opts.Size] {
+			return fmt.Errorf("invalid size: %s (supported: 1280x720, 720x1280, 1024x1024, 1920x1080, 1080x1920, 2048x1080, 3840x2160)", opts.Size)
+		}
+	}
+
+	// Validate FPS
+	if opts.FPS != 0 && opts.FPS != 30 && opts.FPS != 60 {
+		return fmt.Errorf("invalid fps: %d (must be 30 or 60)", opts.FPS)
+	}
+
+	// Validate duration
+	if opts.Duration != 0 && opts.Duration != 5 && opts.Duration != 10 {
+		return fmt.Errorf("invalid duration: %d (must be 5 or 10 seconds)", opts.Duration)
+	}
+
+	// Validate image URLs (max 2 for first/last frame mode)
+	if len(opts.ImageURLs) > 2 {
+		return fmt.Errorf("too many image URLs (max 2 for first/last frame mode)")
+	}
+
+	return nil
 }

@@ -126,3 +126,7 @@ func (t *Theme) SpinnerStyle() lipgloss.Style {
 
 // theme is the default theme instance used by all commands.
 var theme = DefaultTheme()
+
+// SpinnerFrames contains the Braille animation frames for loading spinners.
+// Used consistently across chat.go and video.go for visual feedback.
+var SpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

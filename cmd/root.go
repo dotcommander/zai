@@ -165,6 +165,7 @@ func styledHelp(cmd *cobra.Command, args []string) {
 		{"image", "Generate images with AI enhancement"},
 		{"vision", "Analyze images with AI vision"},
 		{"audio", "Transcribe audio to text"},
+		{"video", "Generate videos with AI"},
 		{"history", "View chat history"},
 		{"model", "Model management"},
 		{"version", "Show version information"},
@@ -237,6 +238,15 @@ func createContext(timeout time.Duration) (context.Context, context.CancelFunc) 
 		return context.WithTimeout(context.Background(), timeout)
 	}
 	return context.WithCancel(context.Background())
+}
+
+// getModelWithDefault returns the model from config key or uses the fallback.
+// Simplifies the pattern: if flag empty -> check config -> use default.
+func getModelWithDefault(configKey, fallback string) string {
+	if model := viper.GetString(configKey); model != "" {
+		return model
+	}
+	return fallback
 }
 
 // buildClientConfig creates ClientConfig from viper settings.
