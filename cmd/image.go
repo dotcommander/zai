@@ -3,11 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -173,10 +169,7 @@ func buildImageOptions() app.ImageOptions {
 
 	// Use configured model if not overridden
 	if opts.Model == "" {
-		opts.Model = viper.GetString("api.image_model")
-		if opts.Model == "" {
-			opts.Model = "cogview-4-250304"
-		}
+		opts.Model = getModelWithDefault("api.image_model", "cogview-4-250304")
 	}
 
 	return opts
@@ -370,15 +363,12 @@ func runImageModelList() error {
 
 // ImageSaver handles saving images to disk.
 type ImageSaver struct {
-	httpClient app.HTTPDoer
+	downloader *app.MediaDownloader
 }
 
 // NewImageSaver creates an ImageSaver with the provided HTTP client.
 func NewImageSaver(httpClient app.HTTPDoer) *ImageSaver {
-	if httpClient == nil {
-		httpClient = &http.Client{}
-	}
-	return &ImageSaver{httpClient: httpClient}
+	return &ImageSaver{downloader: app.NewMediaDownloader(httpClient)}
 }
 
 // ImageSaveResult contains the result of saving an image.
@@ -391,44 +381,13 @@ type ImageSaveResult struct {
 
 // Save downloads an image from URL and saves to file.
 func (s *ImageSaver) Save(url, filePath string) *ImageSaveResult {
-	// Ensure directory exists
-	dir := filepath.Dir(filePath)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to create directory: %w", err)}
-		}
+	result := s.downloader.Download(url, filePath)
+	return &ImageSaveResult{
+		FilePath: result.FilePath,
+		URL:      url,
+		Size:     result.Size,
+		Error:    result.Error,
 	}
-
-	// Download the image
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to create request: %w", err)}
-	}
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to download image: %w", err)}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to download image: status %d", resp.StatusCode)}
-	}
-
-	// Create output file
-	out, err := os.Create(filePath)
-	if err != nil {
-		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to create file: %w", err)}
-	}
-	defer out.Close()
-
-	// Copy response body to file
-	size, err := io.Copy(out, resp.Body)
-	if err != nil {
-		return &ImageSaveResult{FilePath: filePath, URL: url, Error: fmt.Errorf("failed to write image: %w", err)}
-	}
-
-	return &ImageSaveResult{FilePath: filePath, URL: url, Size: size, Error: nil}
 }
 
 // saveImageToDisk downloads an image from URL and saves to file.
@@ -463,19 +422,5 @@ func copyToClipboard(url string) error {
 
 // openImageViewer opens URL with default viewer
 func openImageViewer(url string) error {
-	var cmd *exec.Cmd
-	var err error
-
-	// Platform-specific commands
-	if _, err = exec.LookPath("open"); err == nil { // macOS
-		cmd = exec.Command("open", url)
-	} else if _, err = exec.LookPath("xdg-open"); err == nil { // Linux
-		cmd = exec.Command("xdg-open", url)
-	} else if _, err = exec.LookPath("start"); err == nil { // Windows
-		cmd = exec.Command("cmd", "/c", "start", url)
-	} else {
-		return fmt.Errorf("no suitable viewer found for this platform")
-	}
-
-	return cmd.Start()
+	return app.OpenWith(url)
 }

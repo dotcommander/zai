@@ -44,11 +44,10 @@ func animateThinking(w io.Writer, stop *atomic.Bool) {
 	if w == nil {
 		w = os.Stdout
 	}
-	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 	spinnerStyle := theme.SpinnerStyle()
 	i := 0
 	for !stop.Load() {
-		fmt.Fprintf(w, "\r%s %s", spinnerStyle.Render(frames[i%len(frames)]), theme.Dim.Render("Thinking..."))
+		fmt.Fprintf(w, "\r%s %s", spinnerStyle.Render(SpinnerFrames[i%len(SpinnerFrames)]), theme.Dim.Render("Thinking..."))
 		time.Sleep(80 * time.Millisecond)
 		i++
 	}
