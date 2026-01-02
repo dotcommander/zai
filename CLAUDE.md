@@ -15,6 +15,7 @@ echo "text" | ./bin/zai         # Stdin pipe
 ./bin/zai search "query"        # Web search
 ./bin/zai --search "news"       # Search-augmented generation
 ./bin/zai image "wizard"        # AI-enhanced image generation
+./bin/zai video "a cat playing" # Video generation
 ```
 
 ## Install Globally
@@ -32,6 +33,8 @@ api:
   key: "your-api-key"
   base_url: "https://api.z.ai/api/paas/v4"  # default
   model: "glm-4.7"                           # default
+  image_model: "cogview-4-250304"            # default
+  video_model: "cogvideox-3"                 # default
 web_reader:
   enabled: true           # Enable web content fetching
   timeout: 20            # Default timeout in seconds
@@ -153,6 +156,37 @@ cat audio.wav | zai audio                   # From stdin
 **Max file size:** 25MB
 **Max duration:** 30 seconds per chunk (auto-splits larger files)
 
+### Video Generation
+```bash
+zai video "A cat playing with a ball"                    # Text-to-video
+zai video -f https://example.com/img.jpg "Animate this"  # Image-to-video
+zai video -f first.jpg -f last.jpg "transition"          # First/last frame
+zai video "sunset over ocean" --quality quality --size 1920x1080
+zai video "prompt" --fps 60 --duration 10 --with-audio
+zai video "prompt" --output my-video.mp4 --show          # Save and play
+```
+
+**Options:**
+- `-q, --quality <mode>`: Quality mode (speed=fast, quality=higher)
+- `-s, --size <resolution>`: Video size (1280x720, 1920x1080, 3840x2160, etc.)
+- `--fps <30|60>`: Frame rate (default: 30)
+- `--duration <5|10>`: Duration in seconds (default: 5)
+- `--with-audio`: Generate AI sound effects
+- `-f, --file <url>`: Image URL for image-to-video (specify 1 or 2 for first/last frame)
+- `-o, --output <path>`: Save to custom path
+- `-S, --show`: Open video with default player after generation
+- `--poll-timeout <duration>`: Max wait time (default: 3m)
+
+**Features:**
+- **Async polling**: Automatically polls for completion (typically 1-3 minutes)
+- **Auto-download**: Videos saved to `zai-video-{timestamp}.mp4`
+- **Text-to-Video**: Generate from text description
+- **Image-to-Video**: Animate a single image
+- **First/Last Frame**: Generate transition between two images
+- **Progress indicator**: Animated spinner shows generation progress
+
+**Pricing:** ~$0.2 per video
+
 ## Retry Configuration
 
 ```yaml
@@ -180,6 +214,7 @@ cmd/
   image.go    # Image generation command
   vision.go   # Vision analysis command
   audio.go    # Audio transcription command
+  video.go    # Video generation command
   model.go    # Model management command
 internal/
   app/

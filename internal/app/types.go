@@ -283,3 +283,52 @@ type TranscriptionOptions struct {
 	UserID   string   // End user ID (6-128 characters)
 	RequestID string  // Client-provided unique identifier
 }
+
+// VideoGenerationRequest represents the video generation API request.
+type VideoGenerationRequest struct {
+	Model     string   `json:"model"`                // "cogvideox-3"
+	Prompt    string   `json:"prompt,omitempty"`     // Text description (max 512 chars)
+	ImageURL  []string `json:"image_url,omitempty"`  // URL or base64, 1-2 images (first/last frame)
+	Quality   string   `json:"quality,omitempty"`    // "quality" or "speed" (default: speed)
+	WithAudio bool     `json:"with_audio,omitempty"` // AI sound effects (default: false)
+	Size      string   `json:"size,omitempty"`       // 1280x720, 1920x1080, 3840x2160, etc.
+	FPS       int      `json:"fps,omitempty"`        // 30 or 60 (default: 30)
+	Duration  int      `json:"duration,omitempty"`   // 5 or 10 seconds (default: 5)
+	RequestID string   `json:"request_id,omitempty"`
+	UserID    string   `json:"user_id,omitempty"`
+}
+
+// VideoGenerationResponse represents the async video generation API response.
+type VideoGenerationResponse struct {
+	ID         string `json:"id"`          // Task ID for polling
+	Model      string `json:"model"`
+	RequestID  string `json:"request_id"`
+	TaskStatus string `json:"task_status"` // PROCESSING, SUCCESS, FAIL
+}
+
+// VideoResultResponse represents the result retrieval API response.
+type VideoResultResponse struct {
+	Model       string        `json:"model"`
+	VideoResult []VideoResult `json:"video_result"`
+	TaskStatus  string        `json:"task_status"` // PROCESSING, SUCCESS, FAIL
+	RequestID   string        `json:"request_id"`
+}
+
+// VideoResult represents a generated video.
+type VideoResult struct {
+	URL           string `json:"url"`             // Video URL
+	CoverImageURL string `json:"cover_image_url"` // Thumbnail URL
+}
+
+// VideoOptions configures video generation requests.
+type VideoOptions struct {
+	Model     string   // Override default model
+	Quality   string   // "quality" or "speed"
+	Size      string   // Resolution
+	FPS       int      // Frame rate
+	Duration  int      // Duration in seconds
+	WithAudio bool     // Include AI sound effects
+	ImageURLs []string // First/last frame images
+	UserID    string   // User ID for analytics
+	RequestID string   // Unique request ID
+}
