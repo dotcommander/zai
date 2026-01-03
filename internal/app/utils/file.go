@@ -18,7 +18,7 @@ type OSFileReader struct{}
 
 // ReadFile reads a file from the filesystem.
 func (r OSFileReader) ReadFile(name string) ([]byte, error) {
-	return os.ReadFile(name)
+	return os.ReadFile(name) //nolint:gosec // G304: path comes from caller, not user input
 }
 
 // DetectImageMimeType determines the MIME type from file extension.

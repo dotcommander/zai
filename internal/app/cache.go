@@ -23,8 +23,9 @@ type SearchCache interface {
 
 // FileSearchCache implements persistent file-based caching.
 type FileSearchCache struct {
-	dir   string
-	mutex sync.RWMutex
+	dir            string
+	mutex          sync.RWMutex
+	cleanupRunning sync.Mutex // Guards async cleanup to prevent storms
 }
 
 // NewFileSearchCache creates a new file-based search cache.
@@ -48,7 +49,7 @@ func (fsc *FileSearchCache) Get(query string, opts SearchOptions) ([]SearchResul
 	}
 
 	// Read and parse cache entry
-	data, err := os.ReadFile(filename)
+	data, err := os.ReadFile(filename) //nolint:gosec // G304: filename is constructed internally, not from user input
 	if err != nil {
 		return nil, false
 	}
@@ -63,6 +64,8 @@ func (fsc *FileSearchCache) Get(query string, opts SearchOptions) ([]SearchResul
 	// Check if expired
 	if time.Now().After(entry.ExpiresAt) {
 		os.Remove(filename)
+		// Trigger async cleanup of other expired entries
+		go fsc.tryCleanup()
 		return nil, false
 	}
 
@@ -124,6 +127,16 @@ func (fsc *FileSearchCache) Clear() error {
 	}
 
 	return nil
+}
+
+// tryCleanup attempts to run cleanup if not already running.
+// Uses TryLock to avoid blocking and prevent cleanup storms.
+func (fsc *FileSearchCache) tryCleanup() {
+	if !fsc.cleanupRunning.TryLock() {
+		return // Another cleanup is already running
+	}
+	defer fsc.cleanupRunning.Unlock()
+	_ = fsc.Cleanup() // Ignore error in async cleanup
 }
 
 // Cleanup removes expired entries.
@@ -188,10 +201,10 @@ func generateCacheKey(query string, opts SearchOptions) string {
 
 // CacheStats provides statistics about the cache.
 type CacheStats struct {
-	TotalEntries int   `json:"total_entries"`
-	ExpiredEntries int `json:"expired_entries"`
-	SizeBytes    int64 `json:"size_bytes"`
-	CacheDir     string `json:"cache_dir"`
+	TotalEntries   int    `json:"total_entries"`
+	ExpiredEntries int    `json:"expired_entries"`
+	SizeBytes      int64  `json:"size_bytes"`
+	CacheDir       string `json:"cache_dir"`
 }
 
 // Stats returns cache statistics.

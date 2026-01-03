@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
 	"github.com/dotcommander/zai/internal/app"
 )
 
@@ -28,15 +29,15 @@ Examples:
 }
 
 var (
-	readerFormat          string
-	readerTimeout         int
-	readerNoCache         bool
-	readerNoGFM           bool
-	readerKeepImgDataURL  bool
-	readerWithImagesSum   bool
-	readerWithLinksSum    bool
-	readerNoRetainImages  bool
-	readerJSON            bool
+	readerFormat         string
+	readerTimeout        int
+	readerNoCache        bool
+	readerNoGFM          bool
+	readerKeepImgDataURL bool
+	readerWithImagesSum  bool
+	readerWithLinksSum   bool
+	readerNoRetainImages bool
+	readerJSON           bool
 )
 
 func runReader(cmd *cobra.Command, args []string) error {
@@ -46,11 +47,6 @@ func runReader(cmd *cobra.Command, args []string) error {
 
 	url := args[0]
 
-	// Validate API key
-	if viper.GetString("api.key") == "" {
-		return fmt.Errorf("API key required: set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
-	}
-
 	// Create client using factory with custom timeout (no history needed)
 	clientConfig := app.ClientConfig{
 		APIKey:  viper.GetString("api.key"),
@@ -59,7 +55,7 @@ func runReader(cmd *cobra.Command, args []string) error {
 		Verbose: viper.GetBool("verbose"),
 		Timeout: time.Duration(readerTimeout) * time.Second,
 	}
-	logger := &app.StderrLogger{Verbose: clientConfig.Verbose}
+	logger := app.NewLogger(clientConfig.Verbose)
 	client := app.NewClient(clientConfig, logger, nil, nil)
 
 	// Build web reader options
@@ -97,13 +93,13 @@ func runReader(cmd *cobra.Command, args []string) error {
 	if readerJSON {
 		// Create structured JSON output
 		output := map[string]interface{}{
-			"url":               resp.ReaderResult.URL,
-			"title":             resp.ReaderResult.Title,
-			"description":       resp.ReaderResult.Description,
-			"content":           resp.ReaderResult.Content,
-			"metadata":          resp.ReaderResult.Metadata,
+			"url":                resp.ReaderResult.URL,
+			"title":              resp.ReaderResult.Title,
+			"description":        resp.ReaderResult.Description,
+			"content":            resp.ReaderResult.Content,
+			"metadata":           resp.ReaderResult.Metadata,
 			"external_resources": resp.ReaderResult.ExternalResources,
-			"timestamp":         time.Now().Format(time.RFC3339),
+			"timestamp":          time.Now().Format(time.RFC3339),
 		}
 
 		data, err := json.MarshalIndent(output, "", "  ")
@@ -148,7 +144,7 @@ func runReader(cmd *cobra.Command, args []string) error {
 		[]string{url},
 	)
 	if err := history.Save(entry); err != nil {
-		logger.Warn("Failed to save to history: %v", err)
+		logger.Warn("failed to save to history", "error", err)
 	}
 
 	return nil

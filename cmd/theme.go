@@ -16,28 +16,28 @@ type Theme struct {
 	Dark    lipgloss.Color
 
 	// Common styles
-	Title         lipgloss.Style
-	Section       lipgloss.Style
-	Divider       lipgloss.Style
-	Dim           lipgloss.Style
-	Info          lipgloss.Style
-	ErrorText     lipgloss.Style
-	HelpText      lipgloss.Style
+	Title     lipgloss.Style
+	Section   lipgloss.Style
+	Divider   lipgloss.Style
+	Dim       lipgloss.Style
+	Info      lipgloss.Style
+	ErrorText lipgloss.Style
+	HelpText  lipgloss.Style
 
 	// Chat-specific styles
-	Prompt        lipgloss.Style
-	AILabel       lipgloss.Style
+	Prompt  lipgloss.Style
+	AILabel lipgloss.Style
 
 	// Command/flag styles (for help)
-	Command       lipgloss.Style
-	Flag          lipgloss.Style
-	Description   lipgloss.Style
-	Example       lipgloss.Style
+	Command     lipgloss.Style
+	Flag        lipgloss.Style
+	Description lipgloss.Style
+	Example     lipgloss.Style
 
 	// Search result styles
-	ResultTitle   lipgloss.Style
-	ResultLink    lipgloss.Style
-	ResultDate    lipgloss.Style
+	ResultTitle lipgloss.Style
+	ResultLink  lipgloss.Style
+	ResultDate  lipgloss.Style
 }
 
 // DefaultTheme returns the default theme with Z.AI colors.

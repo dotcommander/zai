@@ -132,14 +132,14 @@ func (h *FileHistoryStore) Path() string {
 // NewImageHistoryEntry creates a history entry for image generation.
 func NewImageHistoryEntry(prompt string, imageData ImageData, model string) HistoryEntry {
 	return HistoryEntry{
-		Timestamp:  time.Now(),
-		Prompt:     prompt,
-		Response:   fmt.Sprintf("Generated image: %s", imageData.URL),
-		Model:      model,
-		ImageURL:   imageData.URL,
-		ImageSize:  fmt.Sprintf("%dx%d", imageData.Width, imageData.Height),
+		Timestamp:   time.Now(),
+		Prompt:      prompt,
+		Response:    fmt.Sprintf("Generated image: %s", imageData.URL),
+		Model:       model,
+		ImageURL:    imageData.URL,
+		ImageSize:   fmt.Sprintf("%dx%d", imageData.Width, imageData.Height),
 		ImageFormat: imageData.Format,
-		Type:       "image",
+		Type:        "image",
 	}
 }
 
@@ -158,9 +158,9 @@ func NewChatHistoryEntry(timestamp time.Time, prompt, response, model string, us
 // NewWebHistoryEntry creates a history entry for web content fetching.
 func NewWebHistoryEntry(id, prompt string, resp *WebReaderResponse, sources []string) HistoryEntry {
 	return HistoryEntry{
-		ID:         id,
-		Timestamp:  time.Now(),
-		Prompt:     prompt,
+		ID:        id,
+		Timestamp: time.Now(),
+		Prompt:    prompt,
 		Response: map[string]interface{}{
 			"url":         resp.ReaderResult.URL,
 			"title":       resp.ReaderResult.Title,
@@ -179,9 +179,9 @@ func NewSearchHistoryEntry(timestamp time.Time, query string, resp *WebSearchRes
 		Timestamp: timestamp,
 		Prompt:    fmt.Sprintf("search: %s", query),
 		Response: map[string]interface{}{
-			"query":         query,
-			"result_count":  len(resp.SearchResult),
-			"results":       resp.SearchResult,
+			"query":        query,
+			"result_count": len(resp.SearchResult),
+			"results":      resp.SearchResult,
 		},
 		Model: "web-search",
 		Type:  "web_search",

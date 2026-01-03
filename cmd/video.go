@@ -3,16 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+
 	"github.com/dotcommander/zai/internal/app"
-	"github.com/dotcommander/zai/internal/app/utils"
 )
 
 var (
-	videoPrompt      string
 	videoQuality     string
 	videoSize        string
 	videoFPS         int
@@ -212,42 +210,4 @@ func buildVideoOptions() app.VideoOptions {
 	}
 
 	return opts
-}
-
-// enhanceVideoPrompt enhances the prompt using AI (optional feature, similar to image).
-// This can be added later if needed - for now keeping it simple.
-func enhanceVideoPrompt(client *app.Client, prompt string) (string, error) {
-	// For future enhancement: use LLM to expand simple prompts into detailed video descriptions
-	return prompt, nil
-}
-
-// readImageAndEncode reads an image file and returns base64 data URI.
-// Returns URL unchanged if it's already an HTTP(S) URL.
-func readImageAndEncode(imagePath string) (string, error) {
-	// Pass through URLs unchanged
-	if strings.HasPrefix(imagePath, "http://") || strings.HasPrefix(imagePath, "https://") {
-		return imagePath, nil
-	}
-
-	// Read local file using utils
-	fileReader := utils.OSFileReader{}
-	data, err := fileReader.ReadFile(imagePath)
-	if err != nil {
-		return "", fmt.Errorf("read image: %w", err)
-	}
-
-	// Check file size (5MB max per API)
-	const maxImageSize = 5 * 1024 * 1024
-	if len(data) > maxImageSize {
-		return "", fmt.Errorf("image file too large: %d bytes (max: 5MB)", len(data))
-	}
-
-	// Detect MIME type using utils (supports more formats: jpg, png, gif, webp)
-	mimeType, err := utils.DetectImageMimeType(imagePath)
-	if err != nil {
-		return "", err
-	}
-
-	// Encode as data URI using utils
-	return utils.EncodeBytesToDataURI(data, mimeType), nil
 }

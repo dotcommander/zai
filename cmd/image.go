@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
 	"github.com/dotcommander/zai/internal/app"
 )
 
 var (
-	imagePrompt    string
 	imageQuality   string
 	imageSize      string
 	imageOutput    string
@@ -352,8 +352,8 @@ func runImageModelList() error {
 	// Show other models that might support images
 	for _, m := range models {
 		if strings.Contains(strings.ToLower(m.ID), "image") ||
-		   strings.Contains(strings.ToLower(m.ID), "cogview") ||
-		   strings.Contains(strings.ToLower(m.ID), "dall-e") {
+			strings.Contains(strings.ToLower(m.ID), "cogview") ||
+			strings.Contains(strings.ToLower(m.ID), "dall-e") {
 			fmt.Printf("  %s  (image capable)\n", m.ID)
 		}
 	}
@@ -388,14 +388,6 @@ func (s *ImageSaver) Save(url, filePath string) *ImageSaveResult {
 		Size:     result.Size,
 		Error:    result.Error,
 	}
-}
-
-// saveImageToDisk downloads an image from URL and saves to file.
-// Uses provided HTTPDoer for connection pooling.
-func saveImageToDisk(client app.HTTPDoer, url, filePath string) error {
-	saver := NewImageSaver(client)
-	result := saver.Save(url, filePath)
-	return result.Error
 }
 
 // copyToClipboard copies URL to clipboard (macOS, Linux, Windows)

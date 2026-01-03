@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
 	"github.com/dotcommander/zai/internal/app"
 )
 
@@ -259,10 +260,10 @@ func buildClientConfig() app.ClientConfig {
 	}
 
 	return app.ClientConfig{
-		APIKey:     viper.GetString("api.key"),
-		BaseURL:    viper.GetString("api.base_url"),
-		Model:      viper.GetString("api.model"),
-		Verbose:    viper.GetBool("verbose"),
+		APIKey:      viper.GetString("api.key"),
+		BaseURL:     viper.GetString("api.base_url"),
+		Model:       viper.GetString("api.model"),
+		Verbose:     viper.GetBool("verbose"),
 		RetryConfig: retryCfg,
 	}
 }
@@ -271,7 +272,7 @@ func buildClientConfig() app.ClientConfig {
 // Uses default http.Client by passing nil for httpClient.
 func newClient() *app.Client {
 	cfg := buildClientConfig()
-	logger := &app.StderrLogger{Verbose: cfg.Verbose}
+	logger := app.NewLogger(cfg.Verbose)
 	history := app.NewFileHistoryStore("")
 	return app.NewClient(cfg, logger, history, nil)
 }
@@ -280,14 +281,14 @@ func newClient() *app.Client {
 // Used for commands that don't need history (e.g., web fetch).
 func newClientWithoutHistory() *app.Client {
 	cfg := buildClientConfig()
-	logger := &app.StderrLogger{Verbose: cfg.Verbose}
+	logger := app.NewLogger(cfg.Verbose)
 	return app.NewClient(cfg, logger, nil, nil)
 }
 
 // newClientWithConfig creates a client with custom config.
 // Used when command-specific config overrides are needed.
 func newClientWithConfig(cfg app.ClientConfig) *app.Client {
-	logger := &app.StderrLogger{Verbose: cfg.Verbose}
+	logger := app.NewLogger(cfg.Verbose)
 	history := app.NewFileHistoryStore("")
 	return app.NewClient(cfg, logger, history, nil)
 }
@@ -359,13 +360,13 @@ func runOneShot(prompt string) error {
 	if cfg.JSONOutput {
 		// Create structured JSON output
 		output := map[string]interface{}{
-			"prompt":      prompt,
-			"response":    response,
-			"model":       viper.GetString("api.model"),
-			"file":        opts.FilePath,
-			"think":       opts.Think,
-			"search":      cfg.Search,
-			"timestamp":   time.Now().Format(time.RFC3339),
+			"prompt":    prompt,
+			"response":  response,
+			"model":     viper.GetString("api.model"),
+			"file":      opts.FilePath,
+			"think":     opts.Think,
+			"search":    cfg.Search,
+			"timestamp": time.Now().Format(time.RFC3339),
 		}
 
 		data, err := json.MarshalIndent(output, "", "  ")

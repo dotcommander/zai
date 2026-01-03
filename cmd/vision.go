@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
 	"github.com/dotcommander/zai/internal/app"
 	"github.com/dotcommander/zai/internal/app/utils"
 )
@@ -149,4 +150,3 @@ func processImageSource(imageSource string, client *app.Client) (string, error) 
 		return "", fmt.Errorf("unsupported image source: %s", imageSource)
 	}
 }
-

@@ -65,7 +65,7 @@ type Model struct {
 
 // ImageGenerationRequest represents the image generation API request.
 type ImageGenerationRequest struct {
-	Model   string `json:"model"`            // "cogview-4-250304"
+	Model   string `json:"model"` // "cogview-4-250304"
 	Prompt  string `json:"prompt"`
 	Quality string `json:"quality,omitempty"` // "hd" or "standard"
 	Size    string `json:"size,omitempty"`    // "1024x1024"
@@ -74,21 +74,21 @@ type ImageGenerationRequest struct {
 
 // ImageResponse represents the image generation API response.
 type ImageResponse struct {
-	ID      string       `json:"id"`
-	Object  string       `json:"object"`
-	Created int64        `json:"created"`
-	Model   string       `json:"model"`
-	Data    []ImageData  `json:"data"`
-	Usage   Usage        `json:"usage,omitempty"`
+	ID      string      `json:"id"`
+	Object  string      `json:"object"`
+	Created int64       `json:"created"`
+	Model   string      `json:"model"`
+	Data    []ImageData `json:"data"`
+	Usage   Usage       `json:"usage,omitempty"`
 }
 
 // ImageData represents a generated image.
 type ImageData struct {
-	URL            string `json:"url"`
-	RevisedPrompt  string `json:"revised_prompt,omitempty"`
-	Width          int    `json:"width"`
-	Height         int    `json:"height"`
-	Format         string `json:"format"`
+	URL           string `json:"url"`
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
+	Format        string `json:"format"`
 }
 
 // ImageModel represents an image generation model.
@@ -111,12 +111,12 @@ type ImageOptions struct {
 // WebReaderRequest represents a web reader API request.
 type WebReaderRequest struct {
 	URL               string `json:"url"`
-	Timeout           *int   `json:"timeout,omitempty"`           // default: 20
-	NoCache           *bool  `json:"no_cache,omitempty"`         // default: false
-	ReturnFormat      string `json:"return_format,omitempty"`    // default: "markdown"
-	RetainImages      *bool  `json:"retain_images,omitempty"`    // default: true
-	NoGFM             *bool  `json:"no_gfm,omitempty"`           // default: false
-	KeepImgDataURL    *bool  `json:"keep_img_data_url,omitempty"` // default: false
+	Timeout           *int   `json:"timeout,omitempty"`             // default: 20
+	NoCache           *bool  `json:"no_cache,omitempty"`            // default: false
+	ReturnFormat      string `json:"return_format,omitempty"`       // default: "markdown"
+	RetainImages      *bool  `json:"retain_images,omitempty"`       // default: true
+	NoGFM             *bool  `json:"no_gfm,omitempty"`              // default: false
+	KeepImgDataURL    *bool  `json:"keep_img_data_url,omitempty"`   // default: false
 	WithImagesSummary *bool  `json:"with_images_summary,omitempty"` // default: false
 	WithLinksSummary  *bool  `json:"with_links_summary,omitempty"`  // default: false
 }
@@ -130,12 +130,12 @@ type WebReaderResponse struct {
 
 // ReaderResult contains the web reader results.
 type ReaderResult struct {
-	Content          string                 `json:"content"`
-	Description      string                 `json:"description"`
-	Title            string                 `json:"title"`
-	URL              string                 `json:"url"`
+	Content           string                 `json:"content"`
+	Description       string                 `json:"description"`
+	Title             string                 `json:"title"`
+	URL               string                 `json:"url"`
 	ExternalResources map[string]interface{} `json:"external_resources,omitempty"`
-	Metadata         map[string]interface{} `json:"metadata,omitempty"`
+	Metadata          map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // WebReaderOptions configures web reader requests.
@@ -152,29 +152,29 @@ type WebReaderOptions struct {
 
 // ChatOptions configures chat requests.
 type ChatOptions struct {
-	Model       string    // Override default model
-	Temperature *float64  // Override default temperature
-	MaxTokens   *int      // Override default max tokens
-	TopP        *float64  // Override default top_p
-	Thinking    *bool     // Enable thinking mode
-	WebEnabled  *bool     // Enable web content fetching
-	WebTimeout  *int      // Web fetch timeout in seconds
+	Model       string   // Override default model
+	Temperature *float64 // Override default temperature
+	MaxTokens   *int     // Override default max tokens
+	TopP        *float64 // Override default top_p
+	Thinking    *bool    // Enable thinking mode
+	WebEnabled  *bool    // Enable web content fetching
+	WebTimeout  *int     // Web fetch timeout in seconds
 
 	// Legacy fields for backward compatibility
-	FilePath     string    // Optional file to include in context
-	Context      []Message // Previous messages for context
-	Think        bool      // Enable thinking/reasoning mode (legacy)
+	FilePath string    // Optional file to include in context
+	Context  []Message // Previous messages for context
+	Think    bool      // Enable thinking/reasoning mode (legacy)
 }
 
 // WebSearchRequest represents a web search API request.
 type WebSearchRequest struct {
-	SearchEngine          string  `json:"search_engine"`           // "search-prime"
-	SearchQuery           string  `json:"search_query"`
-	Count                 *int    `json:"count,omitempty"`         // 1-50, default 10
-	SearchDomainFilter    *string `json:"search_domain_filter,omitempty"`
-	SearchRecencyFilter   *string `json:"search_recency_filter,omitempty"` // oneDay/oneWeek/oneMonth/oneYear/noLimit
-	RequestID             *string `json:"request_id,omitempty"`
-	UserID                *string `json:"user_id,omitempty"`
+	SearchEngine        string  `json:"search_engine"` // "search-prime"
+	SearchQuery         string  `json:"search_query"`
+	Count               *int    `json:"count,omitempty"` // 1-50, default 10
+	SearchDomainFilter  *string `json:"search_domain_filter,omitempty"`
+	SearchRecencyFilter *string `json:"search_recency_filter,omitempty"` // oneDay/oneWeek/oneMonth/oneYear/noLimit
+	RequestID           *string `json:"request_id,omitempty"`
+	UserID              *string `json:"user_id,omitempty"`
 }
 
 // SearchResult represents a single search result.
@@ -190,8 +190,8 @@ type SearchResult struct {
 
 // WebSearchResponse represents a web search API response.
 type WebSearchResponse struct {
-	ID           string        `json:"id"`
-	Created      int64         `json:"created"`
+	ID           string         `json:"id"`
+	Created      int64          `json:"created"`
 	SearchResult []SearchResult `json:"search_result"`
 }
 
@@ -215,11 +215,11 @@ const (
 
 // SearchCacheEntry represents a cached search result.
 type SearchCacheEntry struct {
-	Query      string        `json:"query"`
-	Results    []SearchResult `json:"results"`
-	CachedAt   time.Time     `json:"cached_at"`
-	ExpiresAt  time.Time     `json:"expires_at"`
-	Hash       string        `json:"hash"` // SHA256 of query + options
+	Query     string         `json:"query"`
+	Results   []SearchResult `json:"results"`
+	CachedAt  time.Time      `json:"cached_at"`
+	ExpiresAt time.Time      `json:"expires_at"`
+	Hash      string         `json:"hash"` // SHA256 of query + options
 }
 
 // RetryConfig configures retry behavior for transient failures.
@@ -241,15 +241,15 @@ type VisionRequest struct {
 
 // VisionMessage represents a message in vision API (supports multimodal content).
 type VisionMessage struct {
-	Role    string         `json:"role"`
-	Content []ContentPart  `json:"content"`
+	Role    string        `json:"role"`
+	Content []ContentPart `json:"content"`
 }
 
 // ContentPart represents a part of multimodal content (text or image).
 type ContentPart struct {
-	Type      string           `json:"type"` // "text" or "image_url"
-	Text      string           `json:"text,omitempty"`
-	ImageURL  *ImageURLContent `json:"image_url,omitempty"`
+	Type     string           `json:"type"` // "text" or "image_url"
+	Text     string           `json:"text,omitempty"`
+	ImageURL *ImageURLContent `json:"image_url,omitempty"`
 }
 
 // ImageURLContent contains image URL or base64 data.
@@ -259,7 +259,7 @@ type ImageURLContent struct {
 
 // VisionOptions configures vision/analysis requests.
 type VisionOptions struct {
-	Model       string  // Override default model (e.g., "glm-4.6v")
+	Model       string   // Override default model (e.g., "glm-4.6v")
 	Temperature *float64 // Override default temperature
 	MaxTokens   *int     // Override default max tokens
 	TopP        *float64 // Override default top_p
@@ -276,12 +276,12 @@ type TranscriptionResponse struct {
 
 // TranscriptionOptions configures audio transcription requests.
 type TranscriptionOptions struct {
-	Model    string   // Override default model (default: glm-asr-2512)
-	Prompt   string   // Context from prior transcriptions (max 8000 chars)
-	Hotwords []string // Domain vocabulary (max 100 items)
-	Stream   bool     // Enable streaming via Event Stream
-	UserID   string   // End user ID (6-128 characters)
-	RequestID string  // Client-provided unique identifier
+	Model     string   // Override default model (default: glm-asr-2512)
+	Prompt    string   // Context from prior transcriptions (max 8000 chars)
+	Hotwords  []string // Domain vocabulary (max 100 items)
+	Stream    bool     // Enable streaming via Event Stream
+	UserID    string   // End user ID (6-128 characters)
+	RequestID string   // Client-provided unique identifier
 }
 
 // VideoGenerationRequest represents the video generation API request.
@@ -300,7 +300,7 @@ type VideoGenerationRequest struct {
 
 // VideoGenerationResponse represents the async video generation API response.
 type VideoGenerationResponse struct {
-	ID         string `json:"id"`          // Task ID for polling
+	ID         string `json:"id"` // Task ID for polling
 	Model      string `json:"model"`
 	RequestID  string `json:"request_id"`
 	TaskStatus string `json:"task_status"` // PROCESSING, SUCCESS, FAIL

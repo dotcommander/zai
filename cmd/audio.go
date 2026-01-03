@@ -6,14 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+
 	"github.com/dotcommander/zai/internal/app"
 )
 
@@ -77,19 +79,22 @@ func init() {
 	audioCmd.Flags().BoolVar(&audioClearCache, "clear-cache", false, "Clear cached transcription and start fresh")
 }
 
+// checkFFmpeg verifies ffmpeg is installed before audio processing.
+func checkFFmpeg() error {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return fmt.Errorf("ffmpeg required for audio processing\n  Install: brew install ffmpeg (macOS) | apt install ffmpeg (Linux) | choco install ffmpeg (Windows)")
+	}
+	return nil
+}
+
 func runAudioTranscription(cmd *cobra.Command, args []string) error {
 	// Use extended timeout for large audio files (10 min for long recordings)
 	ctx, cancel := createContext(10 * time.Minute)
 	defer cancel()
 
-	// Validate API key
-	if viper.GetString("api.key") == "" {
-		return fmt.Errorf("API key required: set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
-	}
-
 	var audioPath string
-	var tempFiles []string
-	var cleanupFiles func()
+	tempMgr := &TempFileManager{}
+	defer tempMgr.Cleanup()
 
 	// Determine audio source: YouTube, -f file, or stdin
 	if audioVideo != "" {
@@ -99,24 +104,16 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("YouTube download failed: %w", err)
 		}
 		audioPath = ytPath
-		tempFiles = append(tempFiles, ytPath)
-		cleanupFiles = func() {
-			for _, f := range tempFiles {
-				os.Remove(f)
-			}
-		}
-		defer cleanupFiles()
+		tempMgr.Add(ytPath)
 	} else if audioFile == "-" || (audioFile == "" && hasStdinData()) {
 		// Explicit -f - or auto-detected stdin
 		// Read from stdin and write to temp file
-		stdinPath, cleanup, err := createTempAudioFile()
+		stdinPath, _, err := createTempAudioFile()
 		if err != nil {
 			return fmt.Errorf("failed to create temp file: %w", err)
 		}
 		audioPath = stdinPath
-		tempFiles = append(tempFiles, stdinPath)
-		cleanupFiles = cleanup
-		defer cleanupFiles()
+		tempMgr.Add(stdinPath)
 	} else {
 		return fmt.Errorf("audio file required: use -f <file> or --video <youtube_url>, or pipe via stdin")
 	}
@@ -131,6 +128,14 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error {
 	// Save original source path for cache key (before preprocessing)
 	originalSource := audioPath
 
+	// Check ffmpeg before any processing that requires it
+	needsFFmpeg := audioPreprocess || audioVAD
+	if needsFFmpeg {
+		if err := checkFFmpeg(); err != nil {
+			return err
+		}
+	}
+
 	// Preprocessing: convert to optimal format if needed
 	if audioPreprocess || audioVAD {
 		processedPath, err := preprocessAudio(audioPath, audioVAD)
@@ -138,17 +143,7 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("audio preprocessing failed: %w", err)
 		}
 		if processedPath != audioPath {
-			tempFiles = append(tempFiles, processedPath)
-			// Update cleanup to include new file
-			oldCleanup := cleanupFiles
-			cleanupFiles = func() {
-				for _, f := range tempFiles {
-					os.Remove(f)
-				}
-				if oldCleanup != nil {
-					oldCleanup()
-				}
-			}
+			tempMgr.Add(processedPath)
 			audioPath = processedPath
 		}
 	}
@@ -160,26 +155,23 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error {
 	}
 	const maxFileSize = 25 * 1024 * 1024
 	if info.Size() > maxFileSize {
+		// Check ffmpeg for splitting (required even if preprocessing was skipped)
+		if err := checkFFmpeg(); err != nil {
+			return err
+		}
 		// Try to chunk the file
 		fmt.Fprintf(os.Stderr, "File too large (%d MB), splitting into chunks...\n", info.Size()/1024/1024)
 		chunks, chunkErr := splitAudio(audioPath, 25) // 25-second chunks (API limit 30s)
 		if chunkErr != nil {
 			return fmt.Errorf("failed to chunk audio: %w", chunkErr)
 		}
-		tempFiles = append(tempFiles, chunks...)
-		// Update cleanup
-		oldCleanup := cleanupFiles
-		cleanupFiles = func() {
-			for _, f := range tempFiles {
-				os.Remove(f)
-			}
-			if oldCleanup != nil {
-				oldCleanup()
-			}
-		}
+		tempMgr.AddAll(chunks)
+
+		// Create client once for all chunk processing
+		client := newClientWithoutHistory()
 
 		// Transcribe each chunk and combine
-		return transcribeChunks(ctx, chunks, originalSource, audioPath)
+		return transcribeChunks(ctx, client, chunks, originalSource, audioPath)
 	}
 
 	// Create client
@@ -295,7 +287,7 @@ type chunkResult struct {
 }
 
 // transcribeChunks transcribes multiple audio chunks with caching, resume, and parallel processing.
-func transcribeChunks(ctx context.Context, chunks []string, cacheSourcePath, audioPath string) error {
+func transcribeChunks(ctx context.Context, client *app.Client, chunks []string, cacheSourcePath, audioPath string) error {
 	// Get cache path using original source file for consistent cache keys
 	cachePath, err := getCachePath(cacheSourcePath)
 	if err != nil {
@@ -339,11 +331,11 @@ func transcribeChunks(ctx context.Context, chunks []string, cacheSourcePath, aud
 
 	// Process pending chunks in parallel
 	if !allDone {
-		results := transcribeParallel(ctx, chunks, pending)
+		results := transcribeParallel(ctx, client, chunks, pending)
 		for res := range results {
 			if res.err != nil {
 				if cachePath != "" {
-					saveCache(cachePath, cache)
+					_ = saveCache(cachePath, cache) // Best effort save on error
 				}
 				return fmt.Errorf("chunk %d failed: %w", res.index+1, res.err)
 			}
@@ -383,27 +375,35 @@ func transcribeChunks(ctx context.Context, chunks []string, cacheSourcePath, aud
 }
 
 // transcribeParallel processes chunks concurrently using a worker pool.
-func transcribeParallel(ctx context.Context, chunks []string, pendingIndices []int) <-chan chunkResult {
+// Client is shared across workers for connection pooling.
+func transcribeParallel(ctx context.Context, client *app.Client, chunks []string, pendingIndices []int) <-chan chunkResult {
 	numWorkers := 5
 	results := make(chan chunkResult, len(pendingIndices))
 	jobs := make(chan int, len(pendingIndices))
 
+	var wg sync.WaitGroup
 	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
 		go func(workerID int) {
-			client := newClientWithoutHistory()
+			defer wg.Done()
 			opts := app.TranscriptionOptions{Model: audioModel, Prompt: audioPrompt}
 
 			for idx := range jobs {
 				var resp *app.TranscriptionResponse
 				var err error
 
+				// Retry with exponential backoff + jitter (matches Chat pattern)
 				for attempt := 1; attempt <= 3; attempt++ {
 					resp, err = client.TranscribeAudio(ctx, chunks[idx], opts)
 					if err == nil {
 						break
 					}
 					if attempt < 3 {
-						time.Sleep(time.Duration(attempt) * time.Second)
+						// Exponential backoff: 1s, 2s, 4s
+						backoff := time.Second * time.Duration(1<<uint(attempt-1))
+						// Add jitter ±12.5%
+						jitter := time.Duration(float64(backoff) * 0.125 * (2*rand.Float64() - 1))
+						time.Sleep(backoff + jitter)
 					}
 				}
 
@@ -424,9 +424,7 @@ func transcribeParallel(ctx context.Context, chunks []string, pendingIndices []i
 	}()
 
 	go func() {
-		for w := 0; w < numWorkers; w++ {
-			<-results
-		}
+		wg.Wait()
 		close(results)
 	}()
 
@@ -562,6 +560,28 @@ func createTempAudioFile() (string, func(), error) {
 	}
 
 	return tempFile, cleanup, nil
+}
+
+// TempFileManager tracks temporary files for cleanup.
+type TempFileManager struct {
+	files []string
+}
+
+// Add registers a file for cleanup.
+func (m *TempFileManager) Add(path string) {
+	m.files = append(m.files, path)
+}
+
+// AddAll registers multiple files for cleanup.
+func (m *TempFileManager) AddAll(paths []string) {
+	m.files = append(m.files, paths...)
+}
+
+// Cleanup removes all registered files.
+func (m *TempFileManager) Cleanup() {
+	for _, f := range m.files {
+		os.Remove(f)
+	}
 }
 
 // parseHotwords parses comma-separated hotwords into a slice.

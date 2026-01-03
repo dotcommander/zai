@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -16,8 +17,9 @@ import (
 
 	"mime/multipart"
 
-	"github.com/dotcommander/zai/internal/app/utils"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/dotcommander/zai/internal/app/utils"
 )
 
 const (
@@ -27,23 +29,23 @@ const (
 // ClientConfig holds all configuration for the ZAI client.
 // Injected at construction time - no global state.
 type ClientConfig struct {
-	APIKey     string
-	BaseURL    string
-	Model      string
-	Timeout    time.Duration
-	Verbose    bool
+	APIKey      string
+	BaseURL     string
+	Model       string
+	Timeout     time.Duration
+	Verbose     bool
 	RetryConfig RetryConfig
 }
 
 // DefaultChatOptions returns sensible defaults for CLI usage.
 func DefaultChatOptions() ChatOptions {
 	return ChatOptions{
-		Temperature:  Float64Ptr(0.6),
-		MaxTokens:    IntPtr(8192),
-		TopP:         Float64Ptr(0.9),
-		WebEnabled:   BoolPtr(true),
-		WebTimeout:   IntPtr(20),
-		Think:        false, // Legacy field default
+		Temperature: Float64Ptr(0.6),
+		MaxTokens:   IntPtr(8192),
+		TopP:        Float64Ptr(0.9),
+		WebEnabled:  BoolPtr(true),
+		WebTimeout:  IntPtr(20),
+		Think:       false, // Legacy field default
 	}
 }
 
@@ -52,32 +54,20 @@ func Float64Ptr(v float64) *float64 { return &v }
 func IntPtr(v int) *int             { return &v }
 func BoolPtr(v bool) *bool          { return &v }
 
-// Logger interface for output control (ISP compliance).
-type Logger interface {
-	Info(format string, args ...any)
-	Warn(format string, args ...any)
-	Error(format string, args ...any)
-}
-
-// StderrLogger writes to stderr with emoji prefixes.
-type StderrLogger struct {
-	Verbose bool
-}
-
-func (l *StderrLogger) Info(format string, args ...any) {
-	if l.Verbose {
-		fmt.Fprintf(os.Stderr, "📡 "+format+"\n", args...)
+// NewLogger creates a slog.Logger for the application.
+// If verbose is true, logs at Debug level; otherwise Info level.
+func NewLogger(verbose bool) *slog.Logger {
+	level := slog.LevelInfo
+	if verbose {
+		level = slog.LevelDebug
 	}
+	opts := &slog.HandlerOptions{Level: level}
+	return slog.New(slog.NewTextHandler(os.Stderr, opts))
 }
 
-func (l *StderrLogger) Warn(format string, args ...any) {
-	if l.Verbose {
-		fmt.Fprintf(os.Stderr, "⚠️  "+format+"\n", args...)
-	}
-}
-
-func (l *StderrLogger) Error(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "❌ "+format+"\n", args...)
+// DiscardLogger returns a logger that discards all output (for testing).
+func DiscardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // ChatClient interface for testability (ISP compliance).
@@ -159,7 +149,7 @@ type OSFileReader = utils.OSFileReader
 type Client struct {
 	config     ClientConfig
 	httpClient HTTPDoer
-	logger     Logger
+	logger     *slog.Logger
 	history    HistoryStore
 	fileReader FileReader
 }
@@ -173,13 +163,13 @@ type ClientDeps struct {
 
 // NewClient creates a client with injected dependencies.
 // If deps is nil or fields are nil, default implementations are used.
-func NewClient(cfg ClientConfig, logger Logger, history HistoryStore, httpClient HTTPDoer) *Client {
+func NewClient(cfg ClientConfig, logger *slog.Logger, history HistoryStore, httpClient HTTPDoer) *Client {
 	return NewClientWithDeps(cfg, logger, history, &ClientDeps{HTTPClient: httpClient})
 }
 
 // NewClientWithDeps creates a client with full dependency injection.
 // Allows injection of all dependencies for testing.
-func NewClientWithDeps(cfg ClientConfig, logger Logger, history HistoryStore, deps *ClientDeps) *Client {
+func NewClientWithDeps(cfg ClientConfig, logger *slog.Logger, history HistoryStore, deps *ClientDeps) *Client {
 	timeout := cfg.Timeout
 	if timeout == 0 {
 		timeout = 60 * time.Second
@@ -287,7 +277,7 @@ func (c *Client) enrichWithURLContent(ctx context.Context, prompt, content strin
 		g.Go(func() error {
 			webResp, err := c.FetchWebContent(ctx, url, webOpts)
 			if err != nil {
-				c.logger.Warn("Failed to fetch web content from %s: %v", url, err)
+				c.logger.Warn("failed to fetch web content", "url", url, "error", err)
 				return nil // Don't fail entire group for single URL error
 			}
 			results[i].url = url
@@ -299,7 +289,7 @@ func (c *Client) enrichWithURLContent(ctx context.Context, prompt, content strin
 
 	// Wait for all fetches to complete
 	if err := g.Wait(); err != nil {
-		c.logger.Warn("Error fetching web content: %v", err)
+		c.logger.Warn("error fetching web content", "error", err)
 	}
 
 	// Append results in original order
@@ -325,12 +315,12 @@ func (c *Client) defaultWebReaderOptions(timeout *int) *WebReaderOptions {
 	trueVal := true
 	falseVal := false
 	return &WebReaderOptions{
-		Timeout:          timeout,
-		ReturnFormat:     "markdown",
-		RetainImages:     &trueVal,
-		NoCache:          &falseVal,
-		NoGFM:            &falseVal,
-		KeepImgDataURL:   &falseVal,
+		Timeout:           timeout,
+		ReturnFormat:      "markdown",
+		RetainImages:      &trueVal,
+		NoCache:           &falseVal,
+		NoGFM:             &falseVal,
+		KeepImgDataURL:    &falseVal,
 		WithImagesSummary: &falseVal,
 		WithLinksSummary:  &falseVal,
 	}
@@ -355,7 +345,7 @@ func (c *Client) saveToHistory(prompt, response string, usage Usage) {
 	}
 	entry := NewChatHistoryEntry(time.Now(), prompt, response, c.config.Model, usage)
 	if err := c.history.Save(entry); err != nil {
-		c.logger.Warn("Failed to save to history: %v", err)
+		c.logger.Warn("failed to save to history", "error", err)
 	}
 }
 
@@ -502,7 +492,7 @@ func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqDat
 		return nil, err
 	}
 
-	c.logger.Info("Sending request to: %s", req.URL)
+	c.logger.Debug("sending request", "url", req.URL)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -528,7 +518,7 @@ func (c *Client) executeGetRequest(ctx context.Context, endpoint string) ([]byte
 		return nil, err
 	}
 
-	c.logger.Info("Sending request to: %s", req.URL)
+	c.logger.Debug("sending request", "url", req.URL)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -547,7 +537,6 @@ func (c *Client) executeGetRequest(ctx context.Context, endpoint string) ([]byte
 	return body, nil
 }
 
-
 // doRequest executes the HTTP request to Z.AI API.
 // Single place for all HTTP logic (DRY compliance).
 func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOptions) (string, Usage, error) {
@@ -560,10 +549,10 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 	}
 
 	reqData := ChatRequest{
-		Model:       c.config.Model,
-		Messages:    messages,
-		Stream:      false,
-		Thinking:    thinking,
+		Model:    c.config.Model,
+		Messages: messages,
+		Stream:   false,
+		Thinking: thinking,
 	}
 
 	// Apply optional overrides
@@ -605,7 +594,7 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
 	req.Header.Set("Accept-Language", "en-US,en")
 
-	c.logger.Info("Sending request to: %s", url)
+	c.logger.Debug("sending request", "url", url)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -631,10 +620,10 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 		return "", Usage{}, fmt.Errorf("no choices in response")
 	}
 
-	c.logger.Info("Usage: %d tokens (prompt: %d, completion: %d)",
-		chatResp.Usage.TotalTokens,
-		chatResp.Usage.PromptTokens,
-		chatResp.Usage.CompletionTokens)
+	c.logger.Debug("usage",
+		"total_tokens", chatResp.Usage.TotalTokens,
+		"prompt_tokens", chatResp.Usage.PromptTokens,
+		"completion_tokens", chatResp.Usage.CompletionTokens)
 
 	return chatResp.Choices[0].Message.Content, chatResp.Usage, nil
 }
@@ -670,7 +659,11 @@ func (c *Client) doRequestWithRetry(ctx context.Context, messages []Message, opt
 		// On retry (not first attempt), log and wait
 		if attempt > 1 {
 			backoff := calculateBackoff(attempt, initialBackoff, maxBackoff)
-			c.logger.Info("Retrying request (attempt %d/%d) after %v: %v", attempt, maxAttempts, backoff, lastErr)
+			c.logger.Debug("retrying request",
+				"attempt", attempt,
+				"max_attempts", maxAttempts,
+				"backoff", backoff,
+				"error", lastErr)
 
 			select {
 			case <-time.After(backoff):
@@ -760,7 +753,10 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOpt
 		return nil, fmt.Errorf("no images in response")
 	}
 
-	c.logger.Info("Generated image: %s (%dx%d)", imageResp.Data[0].URL, imageResp.Data[0].Width, imageResp.Data[0].Height)
+	c.logger.Debug("generated image",
+		"url", imageResp.Data[0].URL,
+		"width", imageResp.Data[0].Width,
+		"height", imageResp.Data[0].Height)
 
 	return &imageResp, nil
 }
@@ -821,8 +817,9 @@ func (c *Client) FetchWebContent(ctx context.Context, url string, opts *WebReade
 		return nil, fmt.Errorf("failed to unmarshal web reader response: %w", err)
 	}
 
-	c.logger.Info("Successfully fetched web content: %s (title: %s)",
-		webResp.ReaderResult.URL, webResp.ReaderResult.Title)
+	c.logger.Debug("fetched web content",
+		"url", webResp.ReaderResult.URL,
+		"title", webResp.ReaderResult.Title)
 
 	return &webResp, nil
 }
@@ -914,13 +911,13 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 		return nil, fmt.Errorf("failed to unmarshal search response: %w", err)
 	}
 
-	c.logger.Info("Found %d search results for query: %s", len(searchResp.SearchResult), query)
+	c.logger.Debug("search complete", "results", len(searchResp.SearchResult), "query", query)
 
 	// Save to history (non-blocking, log errors)
 	if c.history != nil {
 		entry := NewSearchHistoryEntry(time.Now(), query, &searchResp)
 		if err := c.history.Save(entry); err != nil {
-			c.logger.Warn("Failed to save search to history: %v", err)
+			c.logger.Warn("failed to save search to history", "error", err)
 		}
 	}
 
@@ -1008,10 +1005,10 @@ func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, 
 		return "", fmt.Errorf("no choices in vision response")
 	}
 
-	c.logger.Info("Vision complete: %d tokens (prompt: %d, completion: %d)",
-		chatResp.Usage.TotalTokens,
-		chatResp.Usage.PromptTokens,
-		chatResp.Usage.CompletionTokens)
+	c.logger.Debug("vision complete",
+		"total_tokens", chatResp.Usage.TotalTokens,
+		"prompt_tokens", chatResp.Usage.PromptTokens,
+		"completion_tokens", chatResp.Usage.CompletionTokens)
 
 	return chatResp.Choices[0].Message.Content, nil
 }
@@ -1094,7 +1091,7 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
 	req.Header.Set("Accept-Language", "en-US,en")
 
-	c.logger.Info("Sending audio transcription request to: %s", url)
+	c.logger.Debug("sending audio transcription request", "url", url)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1116,7 +1113,7 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
-	c.logger.Info("Transcription complete: %d chars, model: %s", len(transcriptionResp.Text), transcriptionResp.Model)
+	c.logger.Debug("transcription complete", "chars", len(transcriptionResp.Text), "model", transcriptionResp.Model)
 
 	return &transcriptionResp, nil
 }
@@ -1175,7 +1172,7 @@ func (c *Client) GenerateVideo(ctx context.Context, prompt string, opts VideoOpt
 		return nil, fmt.Errorf("failed to unmarshal video response: %w", err)
 	}
 
-	c.logger.Info("Video generation task created: %s (status: %s)", videoResp.ID, videoResp.TaskStatus)
+	c.logger.Debug("video generation task created", "id", videoResp.ID, "status", videoResp.TaskStatus)
 
 	return &videoResp, nil
 }
@@ -1201,7 +1198,7 @@ func (c *Client) RetrieveVideoResult(ctx context.Context, taskID string) (*Video
 		return nil, fmt.Errorf("failed to unmarshal video result response: %w", err)
 	}
 
-	c.logger.Info("Video result retrieved: %s (status: %s)", taskID, resultResp.TaskStatus)
+	c.logger.Debug("video result retrieved", "id", taskID, "status", resultResp.TaskStatus)
 
 	return &resultResp, nil
 }
@@ -1216,7 +1213,7 @@ func validateVideoOptions(opts VideoOptions) error {
 	// Validate size format
 	if opts.Size != "" {
 		supportedSizes := map[string]bool{
-			"1280x720":  true, "720x1280": true,
+			"1280x720": true, "720x1280": true,
 			"1024x1024": true,
 			"1920x1080": true, "1080x1920": true,
 			"2048x1080": true,

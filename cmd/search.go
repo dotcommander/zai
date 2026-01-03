@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -17,10 +18,10 @@ import (
 )
 
 var (
-	searchCount     int
-	searchRecency   string
-	searchDomain    string
-	searchFormat    string
+	searchCount   int
+	searchRecency string
+	searchDomain  string
+	searchFormat  string
 )
 
 var searchCmd = &cobra.Command{
@@ -64,22 +65,17 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	var query string
 	if len(args) > 0 {
 		query = args[0]
-	} else {
-		// Read from stdin if piped
-		stat, _ := os.Stdin.Stat()
-		if (stat.Mode() & os.ModeCharDevice) == 0 {
-			// Stdin is piped
-			data, err := os.ReadFile(os.Stdin.Name())
-			if err != nil {
-				return fmt.Errorf("failed to read from stdin: %w", err)
-			}
-			query = strings.TrimSpace(string(data))
-			if query == "" {
-				return fmt.Errorf("empty query from stdin")
-			}
-		} else {
-			return fmt.Errorf("search query is required")
+	} else if hasStdinData() {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("failed to read from stdin: %w", err)
 		}
+		query = strings.TrimSpace(string(data))
+		if query == "" {
+			return fmt.Errorf("empty query from stdin")
+		}
+	} else {
+		return fmt.Errorf("search query is required")
 	}
 
 	// Validate format
@@ -172,16 +168,17 @@ func formatSearchTable(results []app.SearchResult, query string, duration time.D
 		return sb.String(), nil
 	}
 
-	// Find max widths for alignment
+	// Pre-compute domains once to avoid redundant URL parsing
+	domains := make([]string, len(results))
 	maxTitleLen := 0
 	maxDomainLen := 0
-	for _, result := range results {
+	for i, result := range results {
+		domains[i] = extractDomain(result.Link)
 		if len(result.Title) > maxTitleLen {
 			maxTitleLen = len(result.Title)
 		}
-		domain := extractDomain(result.Link)
-		if len(domain) > maxDomainLen {
-			maxDomainLen = len(domain)
+		if len(domains[i]) > maxDomainLen {
+			maxDomainLen = len(domains[i])
 		}
 	}
 
@@ -204,7 +201,7 @@ func formatSearchTable(results []app.SearchResult, query string, duration time.D
 			title = title[:maxTitleLen-3] + "..."
 		}
 
-		domain := extractDomain(result.Link)
+		domain := domains[i]
 		if len(domain) > maxDomainLen {
 			domain = domain[:maxDomainLen-3] + "..."
 		}

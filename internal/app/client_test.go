@@ -99,11 +99,11 @@ func TestClientChat(t *testing.T) {
 
 			// Create client with mock server URL
 			config := ClientConfig{
-				APIKey:     "test-api-key",
-				BaseURL:    server.URL,
-				Model:      "glm-4.7",
-				Timeout:    30 * time.Second,
-				Verbose:    false,
+				APIKey:  "test-api-key",
+				BaseURL: server.URL,
+				Model:   "glm-4.7",
+				Timeout: 30 * time.Second,
+				Verbose: false,
 				RetryConfig: RetryConfig{
 					MaxAttempts:    1,
 					InitialBackoff: 1 * time.Second,
@@ -111,7 +111,7 @@ func TestClientChat(t *testing.T) {
 				},
 			}
 
-			logger := &StderrLogger{Verbose: false}
+			logger := DiscardLogger()
 			client := NewClient(config, logger, nil, nil)
 
 			// Execute chat
@@ -162,7 +162,7 @@ func TestClientListModels(t *testing.T) {
 		},
 	}
 
-	logger := &StderrLogger{Verbose: false}
+	logger := DiscardLogger()
 	client := NewClient(config, logger, nil, nil)
 
 	ctx := context.Background()
@@ -216,7 +216,7 @@ func TestClientRetryLogic(t *testing.T) {
 		},
 	}
 
-	logger := &StderrLogger{Verbose: true}
+	logger := DiscardLogger()
 	client := NewClient(config, logger, nil, nil)
 
 	ctx := context.Background()
@@ -255,7 +255,7 @@ func TestClientContextCancellation(t *testing.T) {
 		},
 	}
 
-	logger := &StderrLogger{Verbose: false}
+	logger := DiscardLogger()
 	client := NewClient(config, logger, nil, nil)
 
 	// Create context that cancels quickly
@@ -311,7 +311,7 @@ func TestClientWithFileContent(t *testing.T) {
 		},
 	}
 
-	logger := &StderrLogger{Verbose: false}
+	logger := DiscardLogger()
 	client := NewClient(config, logger, nil, nil)
 
 	ctx := context.Background()
@@ -354,7 +354,7 @@ type testTimeoutError struct {
 	timeout bool
 }
 
-func (e *testTimeoutError) Error() string   { return "timeout" }
+func (e *testTimeoutError) Error() string { return "timeout" }
 func (e *testTimeoutError) Timeout() bool { return e.timeout }
 
 // TestCalculateBackoff tests the exponential backoff calculation.
@@ -373,7 +373,7 @@ func TestCalculateBackoff(t *testing.T) {
 	// Test that backoff is capped at maxBackoff
 	backoff20 := calculateBackoff(20, initialBackoff, maxBackoff)
 	assert.LessOrEqual(t, backoff20, maxBackoff+5*time.Second) // Allow some jitter above max
-	assert.Greater(t, backoff20, maxBackoff-5*time.Second) // But should be near max
+	assert.Greater(t, backoff20, maxBackoff-5*time.Second)     // But should be near max
 
 	// Test that small backoffs work correctly
 	smallBackoff := calculateBackoff(1, 100*time.Millisecond, 1*time.Second)
