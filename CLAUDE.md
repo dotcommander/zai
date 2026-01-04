@@ -31,10 +31,12 @@ Config file: `~/.config/zai/config.yaml`
 ```yaml
 api:
   key: "your-api-key"
-  base_url: "https://api.z.ai/api/paas/v4"  # default
-  model: "glm-4.7"                           # default
-  image_model: "cogview-4-250304"            # default
-  video_model: "cogvideox-3"                 # default
+  base_url: "https://api.z.ai/api/paas/v4"         # default
+  coding_base_url: "https://api.z.ai/api/coding/paas/v4"  # coding API
+  coding_plan: false                               # set true to use coding API
+  model: "glm-4.7"                                 # default
+  image_model: "cogview-4-250304"                  # default
+  video_model: "cogvideox-3"                       # default
 web_reader:
   enabled: true           # Enable web content fetching
   timeout: 20            # Default timeout in seconds

@@ -42,6 +42,7 @@ Or create `~/.config/zai/config.yaml`:
 api:
   key: "your-api-key"
   model: "glm-4.7"        # default model
+  coding_plan: true       # use Coding API endpoint
 ```
 
 ## Usage
@@ -132,6 +133,7 @@ zai history --json
 | `search` | Web search |
 | `reader` | Fetch web content |
 | `image` | Generate images |
+| `video` | Generate videos |
 | `vision` | Analyze images |
 | `audio` | Transcribe audio |
 | `history` | View chat history |
@@ -144,6 +146,7 @@ zai history --json
 | `-f, --file` | Include file or URL in prompt |
 | `--search` | Augment with web search |
 | `--think` | Enable reasoning mode |
+| `-C, --coding` | Use Coding API endpoint |
 | `--json` | Output as JSON |
 | `-v, --verbose` | Show debug info |
 
