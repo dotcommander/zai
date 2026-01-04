@@ -29,12 +29,13 @@ const (
 // ClientConfig holds all configuration for the ZAI client.
 // Injected at construction time - no global state.
 type ClientConfig struct {
-	APIKey      string
-	BaseURL     string
-	Model       string
-	Timeout     time.Duration
-	Verbose     bool
-	RetryConfig RetryConfig
+	APIKey        string
+	BaseURL       string
+	CodingBaseURL string
+	Model         string
+	Timeout       time.Duration
+	Verbose       bool
+	RetryConfig   RetryConfig
 }
 
 // DefaultChatOptions returns sensible defaults for CLI usage.
