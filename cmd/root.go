@@ -24,6 +24,7 @@ var (
 	think      bool
 	jsonOutput bool
 	search     bool
+	coding     bool
 )
 
 // RunConfig holds runtime configuration collected from flags and config file.
@@ -113,12 +114,55 @@ History:
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printStyledError(err)
 		os.Exit(1)
 	}
 }
 
+// printStyledError displays an error with lipgloss styling.
+// Detects usage errors and conditionally shows help hint.
+func printStyledError(err error) {
+	errMsg := err.Error()
+
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "%s %s\n",
+		theme.ErrorText.Render("Error:"),
+		theme.Description.Render(errMsg))
+
+	// Detect usage errors and show help hint
+	if isUsageError(errMsg) {
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintf(os.Stderr, "%s\n",
+			theme.HelpText.Render("Run 'zai --help' for usage information"))
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
+// isUsageError detects if an error is a usage/flag error.
+// Pattern from charmbracelet/fang for detecting flag parsing errors.
+func isUsageError(errMsg string) bool {
+	usageErrorPrefixes := []string{
+		"unknown flag:",
+		"unknown shorthand flag:",
+		"flag needs an argument:",
+		"invalid argument",
+		"accepts",
+		"unknown command",
+		"required flag",
+	}
+
+	for _, prefix := range usageErrorPrefixes {
+		if strings.HasPrefix(errMsg, prefix) || strings.Contains(errMsg, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func init() {
+	// Enable custom styled error output
+	rootCmd.SilenceUsage = true
+	rootCmd.SilenceErrors = true
 	rootCmd.SetHelpFunc(styledHelp)
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default $HOME/.config/zai/config.yaml)")
@@ -127,12 +171,14 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&think, "think", false, "enable thinking/reasoning mode")
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output in JSON format")
 	rootCmd.PersistentFlags().BoolVar(&search, "search", false, "augment prompt with web search results")
+	rootCmd.PersistentFlags().BoolVarP(&coding, "coding", "C", false, "use coding API endpoint")
 
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("file", rootCmd.PersistentFlags().Lookup("file"))
 	_ = viper.BindPFlag("think", rootCmd.PersistentFlags().Lookup("think"))
 	_ = viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
 	_ = viper.BindPFlag("search", rootCmd.PersistentFlags().Lookup("search"))
+	_ = viper.BindPFlag("coding", rootCmd.PersistentFlags().Lookup("coding"))
 }
 
 // styledHelp displays the custom styled help output.
@@ -185,6 +231,7 @@ func styledHelp(cmd *cobra.Command, args []string) {
 		{"-f, --file <path>", "Include file or URL in prompt"},
 		{"--search", "Augment with web search results"},
 		{"--think", "Enable reasoning mode"},
+		{"-C, --coding", "Use coding API endpoint"},
 		{"--json", "Output as JSON"},
 		{"-v, --verbose", "Show debug info"},
 		{"-h, --help", "Show this help"},
@@ -259,12 +306,21 @@ func buildClientConfig() app.ClientConfig {
 		MaxBackoff:     viper.GetDuration("api.retry.max_backoff"),
 	}
 
+	baseURL := viper.GetString("api.base_url")
+	codingBaseURL := viper.GetString("api.coding_base_url")
+
+	// Swap to coding API if --coding flag or api.coding_plan config is set
+	if viper.GetBool("coding") || viper.GetBool("api.coding_plan") {
+		baseURL = codingBaseURL
+	}
+
 	return app.ClientConfig{
-		APIKey:      viper.GetString("api.key"),
-		BaseURL:     viper.GetString("api.base_url"),
-		Model:       viper.GetString("api.model"),
-		Verbose:     viper.GetBool("verbose"),
-		RetryConfig: retryCfg,
+		APIKey:        viper.GetString("api.key"),
+		BaseURL:       baseURL,
+		CodingBaseURL: codingBaseURL,
+		Model:         viper.GetString("api.model"),
+		Verbose:       viper.GetBool("verbose"),
+		RetryConfig:   retryCfg,
 	}
 }
 
