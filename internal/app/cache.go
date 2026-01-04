@@ -56,15 +56,14 @@ func (fsc *FileSearchCache) Get(query string, opts SearchOptions) ([]SearchResul
 
 	var entry SearchCacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
-		// Corrupted cache entry, remove it
-		os.Remove(filename)
+		// Corrupted cache entry - trigger cleanup to remove it
+		go fsc.tryCleanup()
 		return nil, false
 	}
 
 	// Check if expired
 	if time.Now().After(entry.ExpiresAt) {
-		os.Remove(filename)
-		// Trigger async cleanup of other expired entries
+		// Trigger async cleanup to remove expired entries
 		go fsc.tryCleanup()
 		return nil, false
 	}

@@ -119,6 +119,11 @@ func IsValidWebURL(raw string) bool {
 func IsSearchPrompt(text string) bool {
 	textLower := strings.ToLower(text)
 
+	// Exclude if it contains a URL (likely a web fetch request, not search)
+	if len(ExtractURLs(text)) > 0 {
+		return false
+	}
+
 	// Keywords that indicate search request
 	searchKeywords := []string{
 		"search for", "find information about", "look up", "search",
@@ -129,10 +134,7 @@ func IsSearchPrompt(text string) bool {
 	// Check if any search keywords are present
 	for _, keyword := range searchKeywords {
 		if strings.Contains(textLower, keyword) {
-			// Exclude if it's explicitly about web content (URL)
-			if !strings.Contains(textLower, "fetch") && !strings.Contains(textLower, "read") {
-				return true
-			}
+			return true
 		}
 	}
 
