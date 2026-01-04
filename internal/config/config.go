@@ -18,12 +18,14 @@ type Config struct {
 
 // APIConfig holds API connection settings.
 type APIConfig struct {
-	Key        string      `mapstructure:"key"`
-	BaseURL    string      `mapstructure:"base_url"`
-	Model      string      `mapstructure:"model"`
-	ImageModel string      `mapstructure:"image_model"`
-	VideoModel string      `mapstructure:"video_model"`
-	Retry      RetryConfig `mapstructure:"retry"`
+	Key           string      `mapstructure:"key"`
+	BaseURL       string      `mapstructure:"base_url"`
+	CodingBaseURL string      `mapstructure:"coding_base_url"`
+	CodingPlan    bool        `mapstructure:"coding_plan"`
+	Model         string      `mapstructure:"model"`
+	ImageModel    string      `mapstructure:"image_model"`
+	VideoModel    string      `mapstructure:"video_model"`
+	Retry         RetryConfig `mapstructure:"retry"`
 }
 
 // RetryConfig holds retry behavior settings.
@@ -66,6 +68,8 @@ func Load() (*Config, error) {
 // SetDefaults sets default values
 func SetDefaults() {
 	viper.SetDefault("api.base_url", "https://api.z.ai/api/paas/v4")
+	viper.SetDefault("api.coding_base_url", "https://api.z.ai/api/coding/paas/v4")
+	viper.SetDefault("api.coding_plan", false)
 	viper.SetDefault("api.model", "glm-4.7")
 	viper.SetDefault("api.image_model", "cogview-4-250304")
 	viper.SetDefault("api.video_model", "cogvideox-3")
