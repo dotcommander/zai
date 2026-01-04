@@ -434,6 +434,11 @@ func isRetryableError(err error) bool {
 
 // calculateBackoff calculates exponential backoff with jitter.
 func calculateBackoff(attempt int, initialBackoff, maxBackoff time.Duration) time.Duration {
+	// Cap attempt to prevent overflow (2^62 would overflow time.Duration)
+	if attempt > 62 {
+		attempt = 62
+	}
+
 	// Exponential backoff: initial * 2^(attempt-1)
 	backoff := initialBackoff * time.Duration(1<<uint(attempt-1))
 
@@ -506,7 +511,7 @@ func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqDat
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	return body, nil
@@ -532,7 +537,7 @@ func (c *Client) executeGetRequest(ctx context.Context, endpoint string) ([]byte
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	return body, nil
@@ -609,7 +614,7 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, fmt.Errorf("API error: %d - %s", resp.StatusCode, string(body))
+		return "", Usage{}, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	var chatResp ChatResponse
@@ -898,13 +903,17 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 	var searchResp WebSearchResponse
 	body, err := c.executeJSONRequest(ctx, "web_search", reqData)
 	if err != nil {
-		// Try to parse error response
-		var apiErr struct {
-			Error   string `json:"error"`
-			Message string `json:"message"`
-		}
-		if strings.Contains(err.Error(), "API error:") && json.Unmarshal([]byte(err.Error()[50:]), &apiErr) == nil && apiErr.Error != "" {
-			return nil, fmt.Errorf("search API error: %s - %s", apiErr.Error, apiErr.Message)
+		// Try to extract structured error from API response
+		var apiError *APIError
+		if errors.As(err, &apiError) {
+			// Try to parse JSON error body
+			var jsonErr struct {
+				Error   string `json:"error"`
+				Message string `json:"message"`
+			}
+			if json.Unmarshal([]byte(apiError.Body), &jsonErr) == nil && jsonErr.Error != "" {
+				return nil, fmt.Errorf("search API error: %s - %s", jsonErr.Error, jsonErr.Message)
+			}
 		}
 		return nil, fmt.Errorf("search API error: %w", err)
 	}

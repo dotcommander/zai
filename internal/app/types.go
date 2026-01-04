@@ -1,6 +1,20 @@
 package app
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+// APIError represents an error response from the Z.AI API.
+// Use errors.As to extract this type from wrapped errors.
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API error: %d - %s", e.StatusCode, e.Body)
+}
 
 // ChatRequest represents the API request payload.
 type ChatRequest struct {
