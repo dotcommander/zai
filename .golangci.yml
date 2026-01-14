@@ -8,6 +8,7 @@ linters:
     - unused
     - govet
     - misspell
+    - depguard
     # Disabled - too noisy for existing codebase:
     # - gosec     # Many false positives (G104, G304, G301, etc.)
     # - errcheck  # Requires extensive refactoring
@@ -23,6 +24,79 @@ linters-settings:
     disable:
       - fieldalignment # Micro-optimization, not worth the churn
       - shadow # Common pattern with err
+
+  depguard:
+    rules:
+      banned-routers:
+        deny:
+          - pkg: github.com/gin-gonic/gin
+            desc: "Use github.com/go-chi/chi/v5 instead"
+          - pkg: github.com/gorilla/mux
+            desc: "Use github.com/go-chi/chi/v5 instead"
+
+      banned-logging:
+        deny:
+          - pkg: github.com/rs/zerolog
+            desc: "Use log/slog (standard library) instead"
+          - pkg: github.com/sirupsen/logrus
+            desc: "Use log/slog (standard library) instead"
+
+      banned-llm:
+        deny:
+          - pkg: github.com/sashabaranov/go-openai
+            desc: "Use github.com/openai/openai-go (v3+) instead"
+
+      banned-config:
+        deny:
+          - pkg: github.com/knadh/koanf
+            desc: "Use github.com/spf13/viper instead"
+          - pkg: github.com/joho/godotenv
+            desc: "Use github.com/spf13/viper for env loading instead"
+          - pkg: github.com/kelseyhightower/envconfig
+            desc: "Use github.com/spf13/viper instead"
+          - pkg: github.com/caarlos0/env
+            desc: "Use github.com/spf13/viper instead"
+
+      banned-http:
+        deny:
+          - pkg: github.com/go-resty/resty
+            desc: "Use github.com/hashicorp/go-retryablehttp instead"
+
+      banned-validation:
+        deny:
+          - pkg: github.com/asaskevich/govalidator
+            desc: "Use github.com/go-playground/validator/v10 instead"
+
+      banned-templates:
+        deny:
+          - pkg: github.com/flosch/pongo2
+            desc: "Use github.com/a-h/templ instead"
+          - pkg: github.com/CloudyKit/jet
+            desc: "Use github.com/a-h/templ instead"
+
+      banned-testing:
+        deny:
+          - pkg: gopkg.in/check.v1
+            desc: "Use github.com/stretchr/testify instead"
+          - pkg: github.com/smartystreets/goconvey
+            desc: "Use github.com/stretchr/testify instead"
+          - pkg: github.com/onsi/ginkgo
+            desc: "Use github.com/stretchr/testify instead"
+
+      banned-errors:
+        deny:
+          - pkg: github.com/pkg/errors
+            desc: "Use fmt.Errorf with %w for error wrapping instead"
+
+      banned-yaml:
+        deny:
+          - pkg: gopkg.in/yaml.v2
+            desc: "Use gopkg.in/yaml.v3 instead"
+
+      banned-sqlite:
+        deny:
+          - pkg: github.com/mattn/go-sqlite3
+            desc: "Use modernc.org/sqlite (pure Go, no CGO) instead"
 
 run:
   timeout: 5m
