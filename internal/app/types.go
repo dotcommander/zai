@@ -79,7 +79,7 @@ type Model struct {
 
 // ImageGenerationRequest represents the image generation API request.
 type ImageGenerationRequest struct {
-	Model   string `json:"model"` // "cogview-4-250304"
+	Model   string `json:"model"` // "glm-image"
 	Prompt  string `json:"prompt"`
 	Quality string `json:"quality,omitempty"` // "hd" or "standard"
 	Size    string `json:"size,omitempty"`    // "1024x1024"

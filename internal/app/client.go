@@ -727,7 +727,7 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOpt
 	// Build request with defaults
 	model := opts.Model
 	if model == "" {
-		model = "cogview-4-250304" // Default image model
+		model = "glm-image" // Default image model
 	}
 
 	reqData := ImageGenerationRequest{

@@ -169,7 +169,7 @@ func buildImageOptions() app.ImageOptions {
 
 	// Use configured model if not overridden
 	if opts.Model == "" {
-		opts.Model = getModelWithDefault("api.image_model", "cogview-4-250304")
+		opts.Model = getModelWithDefault("api.image_model", "glm-image")
 	}
 
 	return opts
@@ -344,7 +344,7 @@ func runImageModelList() error {
 	// Show the image generation model specifically
 	imageModel := viper.GetString("api.image_model")
 	if imageModel == "" {
-		imageModel = "cogview-4-250304"
+		imageModel = "glm-image"
 	}
 
 	fmt.Printf("  %s  (image generation)\n", imageModel)
@@ -352,7 +352,7 @@ func runImageModelList() error {
 	// Show other models that might support images
 	for _, m := range models {
 		if strings.Contains(strings.ToLower(m.ID), "image") ||
-			strings.Contains(strings.ToLower(m.ID), "cogview") ||
+			strings.Contains(strings.ToLower(m.ID), "glm-image") ||
 			strings.Contains(strings.ToLower(m.ID), "dall-e") {
 			fmt.Printf("  %s  (image capable)\n", m.ID)
 		}
