@@ -182,7 +182,16 @@ func init() {
 }
 
 // styledHelp displays the custom styled help output.
+// For subcommands, delegates to default cobra help to show command-specific usage.
 func styledHelp(cmd *cobra.Command, args []string) {
+	// If this is a subcommand (not root), use default cobra help
+	if cmd != rootCmd {
+		rootCmd.SetHelpFunc(nil) // Temporarily unset to use default
+		cmd.Help()
+		rootCmd.SetHelpFunc(styledHelp) // Restore custom help
+		return
+	}
+
 	// Title
 	fmt.Println()
 	fmt.Println(theme.Title.Render(" ZAI ") + " " + theme.Description.Render("Chat with Z.AI models"))
