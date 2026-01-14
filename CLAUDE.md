@@ -35,7 +35,7 @@ api:
   coding_base_url: "https://api.z.ai/api/coding/paas/v4"  # coding API
   coding_plan: false                               # set true to use coding API
   model: "glm-4.7"                                 # default
-  image_model: "cogview-4-250304"                  # default
+  image_model: "glm-image"                  # default
   video_model: "cogvideox-3"                       # default
 web_reader:
   enabled: true           # Enable web content fetching

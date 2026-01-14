@@ -71,7 +71,7 @@ func SetDefaults() {
 	viper.SetDefault("api.coding_base_url", "https://api.z.ai/api/coding/paas/v4")
 	viper.SetDefault("api.coding_plan", false)
 	viper.SetDefault("api.model", "glm-4.7")
-	viper.SetDefault("api.image_model", "cogview-4-250304")
+	viper.SetDefault("api.image_model", "glm-image")
 	viper.SetDefault("api.video_model", "cogvideox-3")
 
 	// Retry defaults
