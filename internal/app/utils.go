@@ -17,9 +17,9 @@ func ExtractURLs(text string) []string {
 		return nil
 	}
 
-	// Deduplicate and normalize URLs
-	seen := make(map[string]bool)
-	urls := make([]string, 0)
+	// Deduplicate and normalize URLs with pre-allocated capacity
+	seen := make(map[string]bool, len(matches))
+	urls := make([]string, 0, len(matches))
 
 	for _, match := range matches {
 		// Normalize URL
@@ -100,13 +100,24 @@ func IsWebContentPrompt(text string) bool {
 
 // FormatWebContent formats web content for inclusion in chat prompts.
 func FormatWebContent(url, title, content string) string {
-	return `<web_content>
-<source_url>` + url + `</source_url>
-<title>` + title + `</title>
-<content>
-` + content + `
+	var sb strings.Builder
+	sb.WriteString(`<web_content>
+`)
+	sb.WriteString(`<source_url>`)
+	sb.WriteString(url)
+	sb.WriteString(`</source_url>
+`)
+	sb.WriteString(`<title>`)
+	sb.WriteString(title)
+	sb.WriteString(`</title>
+`)
+	sb.WriteString(`<content>
+`)
+	sb.WriteString(content)
+	sb.WriteString(`
 </content>
-</web_content>`
+</web_content>`)
+	return sb.String()
 }
 
 // IsValidWebURL checks if a string is a valid web URL.
@@ -179,18 +190,26 @@ func ExtractSearchQuery(text string) string {
 // FormatSearchResultsForChat formats search results for inclusion in chat prompts.
 func FormatSearchResultsForChat(results []SearchResult, query string) string {
 	if len(results) == 0 {
-		return fmt.Sprintf("No search results found for: %s", query)
+		return "No search results found for: " + query
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(`<search_results query="%s">
-`, query))
+	sb.WriteString(`<search_results query="`)
+	sb.WriteString(query)
+	sb.WriteString(`">
+`)
 
 	for i, result := range results {
-		sb.WriteString(fmt.Sprintf(`<result index="%d">
-<title>%s</title>
-<link>%s</link>
-`, i+1, result.Title, result.Link))
+		sb.WriteString(`<result index="`)
+		sb.WriteString(fmt.Sprintf("%d", i+1))
+		sb.WriteString(`">
+<title>`)
+		sb.WriteString(result.Title)
+		sb.WriteString(`</title>
+<link>`)
+		sb.WriteString(result.Link)
+		sb.WriteString(`</link>
+`)
 
 		if result.Content != "" {
 			// Truncate content if too long
@@ -198,15 +217,21 @@ func FormatSearchResultsForChat(results []SearchResult, query string) string {
 			if len(content) > 500 {
 				content = content[:500] + "..."
 			}
-			sb.WriteString(fmt.Sprintf("<summary>%s</summary>\n", content))
+			sb.WriteString("<summary>")
+			sb.WriteString(content)
+			sb.WriteString("</summary>\n")
 		}
 
 		if result.PublishDate != "" {
-			sb.WriteString(fmt.Sprintf("<publish_date>%s</publish_date>\n", result.PublishDate))
+			sb.WriteString("<publish_date>")
+			sb.WriteString(result.PublishDate)
+			sb.WriteString("</publish_date>\n")
 		}
 
 		if result.Media != "" {
-			sb.WriteString(fmt.Sprintf("<source>%s</source>\n", result.Media))
+			sb.WriteString("<source>")
+			sb.WriteString(result.Media)
+			sb.WriteString("</source>\n")
 		}
 
 		sb.WriteString("</result>\n\n")
@@ -236,8 +261,12 @@ func FormatSearchForContext(results []SearchResult) string {
 
 	for _, result := range results {
 		sb.WriteString("<result>\n")
-		sb.WriteString(fmt.Sprintf("<title>%s</title>\n", result.Title))
-		sb.WriteString(fmt.Sprintf("<url>%s</url>\n", result.Link))
+		sb.WriteString("<title>")
+		sb.WriteString(result.Title)
+		sb.WriteString("</title>\n")
+		sb.WriteString("<url>")
+		sb.WriteString(result.Link)
+		sb.WriteString("</url>\n")
 
 		if result.Content != "" {
 			// Truncate very long content to keep context manageable
@@ -245,11 +274,15 @@ func FormatSearchForContext(results []SearchResult) string {
 			if len(content) > 1000 {
 				content = content[:1000] + "..."
 			}
-			sb.WriteString(fmt.Sprintf("<content>%s</content>\n", content))
+			sb.WriteString("<content>")
+			sb.WriteString(content)
+			sb.WriteString("</content>\n")
 		}
 
 		if result.PublishDate != "" {
-			sb.WriteString(fmt.Sprintf("<date>%s</date>\n", result.PublishDate))
+			sb.WriteString("<date>")
+			sb.WriteString(result.PublishDate)
+			sb.WriteString("</date>\n")
 		}
 
 		sb.WriteString("</result>\n")
