@@ -2,7 +2,7 @@
 
 A fast, feature-rich CLI for [Z.AI](https://z.ai) GLM models.
 
-![ZAI CLI](docs/screenshot.jpg)
+![ZAI CLI](docs/screenshot.png)
 
 ## Features
 
