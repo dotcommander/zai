@@ -44,7 +44,7 @@ func showHistory() error {
 		return nil
 	}
 
-	if historyJSON {
+	if historyJSON { //nolint:nestif
 		// Create structured JSON output
 		output := map[string]interface{}{
 			"history":   entries,
@@ -61,8 +61,8 @@ func showHistory() error {
 	} else {
 		// Display human-readable table format
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "TIME\tTYPE\tMODEL\tPROMPT\tRESPONSE")
-		fmt.Fprintln(w, "────\t────\t─────\t──────\t────────")
+		fmt.Fprintln(w, "TIME\tTYPE\tMODEL\tPROMPT\tRESPONSE") //nolint:errcheck // terminal output
+		fmt.Fprintln(w, "────\t────\t─────\t──────\t────────") //nolint:errcheck // terminal output
 
 		for _, entry := range entries {
 			// Determine type display
@@ -73,11 +73,12 @@ func showHistory() error {
 
 			// Special handling for image entries
 			var responseDisplay string
-			if entry.Type == "image" {
+			switch entry.Type {
+			case "image":
 				responseDisplay = fmt.Sprintf("🖼️ %s", entry.ImageSize)
-			} else if entry.Type == "web" {
+			case "web":
 				responseDisplay = "🌐 web content"
-			} else {
+			default:
 				// Handle Response as interface{}
 				if respStr, ok := entry.Response.(string); ok {
 					responseDisplay = truncate(respStr, 30)
@@ -86,7 +87,7 @@ func showHistory() error {
 				}
 			}
 
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", //nolint:errcheck // terminal output
 				entry.Timestamp.Format("01-02 15:04"),
 				typeDisplay,
 				entry.Model,
@@ -94,7 +95,7 @@ func showHistory() error {
 				responseDisplay,
 			)
 		}
-		w.Flush()
+		w.Flush() //nolint:errcheck // tabwriter flush
 
 		if historyLimit > 0 && len(entries) >= historyLimit {
 			fmt.Printf("\nShowing %d most recent. Use -l 0 for all.\n", historyLimit)

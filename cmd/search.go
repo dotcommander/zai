@@ -63,9 +63,10 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	// Get query from args or stdin
 	var query string
-	if len(args) > 0 {
+	switch {
+	case len(args) > 0:
 		query = args[0]
-	} else if hasStdinData() {
+	case hasStdinData():
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("failed to read from stdin: %w", err)
@@ -74,7 +75,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		if query == "" {
 			return fmt.Errorf("empty query from stdin")
 		}
-	} else {
+	default:
 		return fmt.Errorf("search query is required")
 	}
 
@@ -252,8 +253,11 @@ func formatSearchDetailed(results []app.SearchResult, query string, duration tim
 		if len(content) > 300 {
 			content = content[:300] + "..."
 		}
-		sb.WriteString(fmt.Sprintf("   %s\n\n", content))
-		sb.WriteString(strings.Repeat("-", 80) + "\n\n")
+		sb.WriteString("   ")
+		sb.WriteString(content)
+		sb.WriteString("\n\n")
+		sb.WriteString(strings.Repeat("-", 80))
+		sb.WriteString("\n\n")
 	}
 
 	return sb.String(), nil

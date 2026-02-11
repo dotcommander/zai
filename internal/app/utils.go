@@ -100,24 +100,15 @@ func IsWebContentPrompt(text string) bool {
 
 // FormatWebContent formats web content for inclusion in chat prompts.
 func FormatWebContent(url, title, content string) string {
-	var sb strings.Builder
-	sb.WriteString(`<web_content>
-`)
-	sb.WriteString(`<source_url>`)
-	sb.WriteString(url)
-	sb.WriteString(`</source_url>
-`)
-	sb.WriteString(`<title>`)
-	sb.WriteString(title)
-	sb.WriteString(`</title>
-`)
-	sb.WriteString(`<content>
-`)
-	sb.WriteString(content)
-	sb.WriteString(`
+	const webContentFormat = `<web_content>
+<source_url>%s</source_url>
+<title>%s</title>
+<content>
+%s
 </content>
-</web_content>`)
-	return sb.String()
+</web_content>`
+
+	return fmt.Sprintf(webContentFormat, url, title, content)
 }
 
 // IsValidWebURL checks if a string is a valid web URL.
@@ -182,15 +173,17 @@ func ExtractSearchQuery(text string) string {
 	}
 
 	// Remove trailing question marks
-	text = strings.TrimSpace(strings.TrimSuffix(text, "?"))
-
-	return text
+	text = strings.TrimSuffix(text, "?")
+	return strings.TrimSpace(text)
 }
 
 // FormatSearchResultsForChat formats search results for inclusion in chat prompts.
 func FormatSearchResultsForChat(results []SearchResult, query string) string {
 	if len(results) == 0 {
-		return "No search results found for: " + query
+		var b strings.Builder
+		b.WriteString("No search results found for: ")
+		b.WriteString(query)
+		return b.String()
 	}
 
 	var sb strings.Builder
@@ -199,17 +192,13 @@ func FormatSearchResultsForChat(results []SearchResult, query string) string {
 	sb.WriteString(`">
 `)
 
+	resultTemplate := `<result index="%d">
+<title>%s</title>
+<link>%s</link>
+`
+
 	for i, result := range results {
-		sb.WriteString(`<result index="`)
-		sb.WriteString(fmt.Sprintf("%d", i+1))
-		sb.WriteString(`">
-<title>`)
-		sb.WriteString(result.Title)
-		sb.WriteString(`</title>
-<link>`)
-		sb.WriteString(result.Link)
-		sb.WriteString(`</link>
-`)
+		sb.WriteString(fmt.Sprintf(resultTemplate, i+1, result.Title, result.Link))
 
 		if result.Content != "" {
 			// Truncate content if too long
@@ -259,14 +248,13 @@ func FormatSearchForContext(results []SearchResult) string {
 	var sb strings.Builder
 	sb.WriteString("<web_search_results>\n")
 
+	resultTemplate := `<result>
+<title>%s</title>
+<url>%s</url>
+`
+
 	for _, result := range results {
-		sb.WriteString("<result>\n")
-		sb.WriteString("<title>")
-		sb.WriteString(result.Title)
-		sb.WriteString("</title>\n")
-		sb.WriteString("<url>")
-		sb.WriteString(result.Link)
-		sb.WriteString("</url>\n")
+		sb.WriteString(fmt.Sprintf(resultTemplate, result.Title, result.Link))
 
 		if result.Content != "" {
 			// Truncate very long content to keep context manageable

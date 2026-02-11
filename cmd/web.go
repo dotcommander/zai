@@ -90,7 +90,7 @@ func runReader(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output results
-	if readerJSON {
+	if readerJSON { //nolint:nestif // JSON vs human-readable output branching
 		// Create structured JSON output
 		output := map[string]interface{}{
 			"url":                resp.ReaderResult.URL,

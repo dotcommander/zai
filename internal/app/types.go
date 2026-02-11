@@ -175,9 +175,10 @@ type ChatOptions struct {
 	WebTimeout  *int     // Web fetch timeout in seconds
 
 	// Legacy fields for backward compatibility
-	FilePath string    // Optional file to include in context
-	Context  []Message // Previous messages for context
-	Think    bool      // Enable thinking/reasoning mode (legacy)
+	FilePath     string    // Optional file to include in context
+	Context      []Message // Previous messages for context
+	Think        bool      // Enable thinking/reasoning mode (legacy)
+	SystemPrompt string    // Custom system prompt
 }
 
 // WebSearchRequest represents a web search API request.

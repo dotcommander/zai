@@ -16,6 +16,13 @@ import (
 	"github.com/dotcommander/zai/internal/app"
 )
 
+// Constants for input size limits
+const (
+	MaxStdinSize  = 10 * 1024 * 1024  // 10MB
+	MaxFileSize   = 100 * 1024 * 1024 // 100MB
+	AudioFileSize = 25 * 1024 * 1024  // 25MB (audio specific)
+)
+
 // Flag variables for Cobra binding (required for PersistentFlags).
 var (
 	cfgFile    string
@@ -25,6 +32,7 @@ var (
 	jsonOutput bool
 	search     bool
 	coding     bool
+	system     string
 )
 
 // RunConfig holds runtime configuration collected from flags and config file.
@@ -35,6 +43,7 @@ type RunConfig struct {
 	JSONOutput bool
 	Search     bool
 	Verbose    bool
+	System     string
 }
 
 // NewRunConfig creates RunConfig from viper settings (collected after flag parsing).
@@ -45,6 +54,7 @@ func NewRunConfig() RunConfig {
 		JSONOutput: viper.GetBool("json"),
 		Search:     viper.GetBool("search"),
 		Verbose:    viper.GetBool("verbose"),
+		System:     viper.GetString("system"),
 	}
 }
 
@@ -89,18 +99,44 @@ History:
 			stdinData = data
 		}
 
-		// Build prompt from args
-		if len(args) > 0 {
-			prompt = strings.Join(args, " ")
+		// Handle --system flag: "-", "/dev/stdin", or file paths
+		systemVal := viper.GetString("system")
+		stdinUsedForSystem := false
+		if systemVal == "-" || systemVal == "/dev/stdin" {
+			if stdinData == "" {
+				return fmt.Errorf("--system %q requires stdin input", systemVal)
+			}
+			viper.Set("system", stdinData)
+			stdinUsedForSystem = true
+		} else if systemVal != "" {
+			// Try reading as file with path validation
+			if err := validateAndReadSystemFile(systemVal); err != nil {
+				// Only show error if it's not a "file not found" error
+				if !os.IsNotExist(err) {
+					return fmt.Errorf("failed to read system file: %w", err)
+				}
+			}
 		}
 
-		// Combine: prompt + stdin (stdin as context with XML tags)
-		if stdinData != "" {
+		// If stdin wasn't used for system prompt, prepend it to user prompt as context
+		if stdinData != "" && !stdinUsedForSystem {
+			var b strings.Builder
+			b.WriteString("<stdin>\n")
+			b.WriteString(stdinData)
+			b.WriteString("\n</stdin>\n\n")
+			b.WriteString(prompt)
+			prompt = b.String()
+		}
+
+		// Build prompt from args
+		if len(args) > 0 {
+			var b strings.Builder
 			if prompt != "" {
-				prompt = prompt + "\n\n<stdin>\n" + stdinData + "\n</stdin>"
-			} else {
-				prompt = stdinData
+				b.WriteString(prompt)
+				b.WriteString(" ")
 			}
+			b.WriteString(strings.Join(args, " "))
+			prompt = b.String()
 		}
 
 		// Require some input
@@ -172,6 +208,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output in JSON format")
 	rootCmd.PersistentFlags().BoolVar(&search, "search", false, "augment prompt with web search results")
 	rootCmd.PersistentFlags().BoolVarP(&coding, "coding", "C", false, "use coding API endpoint")
+	rootCmd.PersistentFlags().StringVar(&system, "system", "", "custom system prompt")
 
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	_ = viper.BindPFlag("file", rootCmd.PersistentFlags().Lookup("file"))
@@ -179,6 +216,7 @@ func init() {
 	_ = viper.BindPFlag("json", rootCmd.PersistentFlags().Lookup("json"))
 	_ = viper.BindPFlag("search", rootCmd.PersistentFlags().Lookup("search"))
 	_ = viper.BindPFlag("coding", rootCmd.PersistentFlags().Lookup("coding"))
+	_ = viper.BindPFlag("system", rootCmd.PersistentFlags().Lookup("system"))
 }
 
 // styledHelp displays the custom styled help output.
@@ -186,8 +224,8 @@ func init() {
 func styledHelp(cmd *cobra.Command, args []string) {
 	// If this is a subcommand (not root), use default cobra help
 	if cmd != rootCmd {
-		rootCmd.SetHelpFunc(nil) // Temporarily unset to use default
-		cmd.Help()
+		rootCmd.SetHelpFunc(nil)        // Temporarily unset to use default
+		cmd.Help()                      //nolint:errcheck // help output
 		rootCmd.SetHelpFunc(styledHelp) // Restore custom help
 		return
 	}
@@ -316,6 +354,12 @@ func buildClientConfig() app.ClientConfig {
 		MaxBackoff:     viper.GetDuration("api.retry.max_backoff"),
 	}
 
+	// Load rate limit config from viper
+	rateLimitCfg := app.RateLimitConfig{
+		RequestsPerSecond: viper.GetInt("api.rate_limit.requests_per_second"),
+		Burst:             viper.GetInt("api.rate_limit.burst"),
+	}
+
 	baseURL := viper.GetString("api.base_url")
 	codingBaseURL := viper.GetString("api.coding_base_url")
 
@@ -330,6 +374,7 @@ func buildClientConfig() app.ClientConfig {
 		CodingBaseURL: codingBaseURL,
 		Model:         viper.GetString("api.model"),
 		Verbose:       viper.GetBool("verbose"),
+		RateLimit:     rateLimitCfg,
 		RetryConfig:   retryCfg,
 	}
 }
@@ -365,66 +410,158 @@ func hasStdinData() bool {
 	return (stat.Mode() & os.ModeCharDevice) == 0
 }
 
-// readStdin reads all data from stdin.
+// readStdin reads all data from stdin with a size limit.
 func readStdin() (string, error) {
-	data, err := io.ReadAll(os.Stdin)
+	limitedReader := io.LimitReader(os.Stdin, MaxStdinSize)
+	data, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(data)), nil
+	if len(data) == MaxStdinSize {
+		return "", fmt.Errorf("stdin exceeds maximum size of %d bytes", MaxStdinSize)
+	}
+	dataStr := string(data)
+	return strings.TrimSpace(dataStr), nil
+}
+
+// validateAndReadSystemFile validates the system file path and reads its content
+func validateAndReadSystemFile(path string) error {
+	// Clean the path to resolve any . or .. components
+	cleanPath := filepath.Clean(path)
+
+	// Check for path traversal attempts
+	if strings.Contains(cleanPath, "..") {
+		return fmt.Errorf("path traversal not allowed in system file path")
+	}
+
+	// Get current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+
+	// Check if the path is within the current working directory using directory walk
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute current working directory: %w", err)
+	}
+
+	// Check if the absolute path starts with the absolute current working directory
+	if !strings.HasPrefix(absPath, absCwd) {
+		return fmt.Errorf("system file path must be within current working directory")
+	}
+
+	// Check if file exists and is readable
+	if _, err := os.Stat(cleanPath); err != nil {
+		return err // Return the original error (likely file not found)
+	}
+
+	// Read the file content
+	content, err := os.ReadFile(cleanPath)
+	if err != nil {
+		return fmt.Errorf("failed to read file: %w", err)
+	}
+
+	viper.Set("system", string(content))
+	return nil
 }
 
 // runOneShot executes a single prompt and exits.
 func runOneShot(prompt string) error {
 	cfg := NewRunConfig()
+	client, opts := setupOneShotConfig(cfg)
+	logConfigDetails(cfg, opts, prompt)
+
+	ctx, cancel := createContext(5 * time.Minute)
+	defer cancel()
+
+	prompt = augmentWithWebSearch(ctx, client, cfg, prompt)
+	response, err := callChatAPI(ctx, client, prompt, opts)
+	if err != nil {
+		return fmt.Errorf("failed to get response: %w", err)
+	}
+
+	formatOutput(response, cfg, prompt, opts)
+
+	return nil
+}
+
+// setupOneShotConfig initializes configuration and creates client with options
+func setupOneShotConfig(cfg RunConfig) (*app.Client, app.ChatOptions) {
 	client := newClient()
 	opts := app.DefaultChatOptions()
 	opts.FilePath = cfg.FilePath
 	opts.Think = cfg.Think
+	opts.SystemPrompt = cfg.System
+	return client, opts
+}
 
+// logConfigDetails logs configuration details if verbose mode is enabled
+func logConfigDetails(cfg RunConfig, opts app.ChatOptions, prompt string) {
 	if cfg.Verbose {
 		fmt.Fprintf(os.Stderr, "Prompt: %s\n", prompt)
 		if opts.FilePath != "" {
 			fmt.Fprintf(os.Stderr, "File: %s\n", opts.FilePath)
 		}
-	}
-
-	// Create context with 5 minute timeout for the entire operation
-	ctx, cancel := createContext(5 * time.Minute)
-	defer cancel()
-
-	// Augment prompt with web search results if --search flag is set
-	if cfg.Search {
-		if cfg.Verbose {
-			fmt.Fprintf(os.Stderr, "Searching web for: %s\n", prompt)
-		}
-
-		searchOpts := app.SearchOptions{
-			Count:         5,
-			RecencyFilter: "oneWeek",
-		}
-		results, err := client.SearchWeb(ctx, prompt, searchOpts)
-		if err != nil {
-			if cfg.Verbose {
-				fmt.Fprintf(os.Stderr, "Search failed (continuing without): %v\n", err)
-			}
-		} else if len(results.SearchResult) > 0 {
-			searchContext := app.FormatSearchForContext(results.SearchResult)
-			prompt = searchContext + "\n\nUser question: " + prompt
-
-			if cfg.Verbose {
-				fmt.Fprintf(os.Stderr, "Found %d search results\n", len(results.SearchResult))
-			}
+		if opts.SystemPrompt != "" {
+			fmt.Fprintf(os.Stderr, "System prompt: %s\n", opts.SystemPrompt)
 		}
 	}
+}
 
-	response, err := client.Chat(ctx, prompt, opts)
+// augmentWithWebSearch augments the prompt with web search results if --search flag is set
+func augmentWithWebSearch(ctx context.Context, client *app.Client, cfg RunConfig, prompt string) string {
+	if !cfg.Search {
+		return prompt
+	}
+
+	if cfg.Verbose {
+		fmt.Fprintf(os.Stderr, "Searching web for: %s\n", prompt)
+	}
+
+	searchOpts := app.SearchOptions{
+		Count:         5,
+		RecencyFilter: "oneWeek",
+	}
+	results, err := client.SearchWeb(ctx, prompt, searchOpts)
 	if err != nil {
-		return fmt.Errorf("failed to get response: %w", err)
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "Search failed (continuing without): %v\n", err)
+		}
+		return prompt
 	}
 
+	if len(results.SearchResult) > 0 {
+		searchContext := app.FormatSearchForContext(results.SearchResult)
+		var b strings.Builder
+		b.WriteString(searchContext)
+		b.WriteString("\n\nUser question: ")
+		b.WriteString(prompt)
+		augmentedPrompt := b.String()
+
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "Found %d search results\n", len(results.SearchResult))
+		}
+
+		return augmentedPrompt
+	}
+
+	return prompt
+}
+
+// callChatAPI makes the chat API call and returns the response
+func callChatAPI(ctx context.Context, client *app.Client, prompt string, opts app.ChatOptions) (string, error) {
+	return client.Chat(ctx, prompt, opts)
+}
+
+// formatOutput formats and prints the response according to configuration
+func formatOutput(response string, cfg RunConfig, prompt string, opts app.ChatOptions) {
 	if cfg.JSONOutput {
-		// Create structured JSON output
 		output := map[string]interface{}{
 			"prompt":    prompt,
 			"response":  response,
@@ -437,12 +574,11 @@ func runOneShot(prompt string) error {
 
 		data, err := json.MarshalIndent(output, "", "  ")
 		if err != nil {
-			return fmt.Errorf("failed to marshal JSON: %w", err)
+			fmt.Fprintf(os.Stderr, "failed to marshal JSON: %v\n", err)
+			return
 		}
 		fmt.Println(string(data))
 	} else {
 		fmt.Println(response)
 	}
-
-	return nil
 }

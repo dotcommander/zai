@@ -396,7 +396,7 @@ func copyToClipboard(url string) error {
 	var err error
 
 	// Platform-specific commands
-	if _, err = exec.LookPath("pbcopy"); err == nil { // macOS
+	if _, err = exec.LookPath("pbcopy"); err == nil { //nolint:nestif // platform detection requires chained lookups
 		cmd = exec.Command("pbcopy")
 	} else if _, err = exec.LookPath("xclip"); err == nil { // Linux
 		cmd = exec.Command("xclip", "-selection", "clipboard")

@@ -8,6 +8,13 @@ import (
 	"path/filepath"
 )
 
+// closeBodyResponse closes the response body and logs any error.
+func closeBodyResponse(resp *http.Response) {
+	if err := resp.Body.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to close response body: %v\n", err)
+	}
+}
+
 // MediaDownloader handles downloading media files with DI support.
 type MediaDownloader struct {
 	httpClient HTTPDoer
@@ -44,7 +51,7 @@ func (d *MediaDownloader) Download(url, filePath string) *DownloadResult {
 	if err != nil {
 		return &DownloadResult{FilePath: filePath, Error: fmt.Errorf("download: %w", err)}
 	}
-	defer resp.Body.Close()
+	defer closeBodyResponse(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return &DownloadResult{FilePath: filePath, Error: fmt.Errorf("download failed: status %d", resp.StatusCode)}
@@ -75,7 +82,7 @@ func writeToFile(filePath string, r io.Reader) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("create file: %w", err)
 	}
-	defer out.Close()
+	defer closeFile(out)
 
 	size, err := io.Copy(out, r)
 	if err != nil {

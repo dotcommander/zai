@@ -97,7 +97,7 @@ func (fsc *FileSearchCache) Set(query string, opts SearchOptions, results []Sear
 		return fmt.Errorf("failed to marshal cache entry: %w", err)
 	}
 
-	if err := os.WriteFile(filename, data, 0644); err != nil {
+	if err := os.WriteFile(filename, data, 0600); err != nil {
 		return fmt.Errorf("failed to write cache file: %w", err)
 	}
 
@@ -165,12 +165,12 @@ func (fsc *FileSearchCache) Cleanup() error {
 		var cacheEntry SearchCacheEntry
 		if err := json.Unmarshal(data, &cacheEntry); err != nil {
 			// Corrupted entry, remove it
-			os.Remove(filename)
+			os.Remove(filename) //nolint:errcheck // best-effort cleanup
 			continue
 		}
 
 		if time.Now().After(cacheEntry.ExpiresAt) {
-			os.Remove(filename)
+			os.Remove(filename) //nolint:errcheck // best-effort cleanup
 		}
 	}
 

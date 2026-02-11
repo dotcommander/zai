@@ -9,11 +9,20 @@ linters:
     - govet
     - misspell
     - depguard
-    # Disabled - too noisy for existing codebase:
-    # - gosec     # Many false positives (G104, G304, G301, etc.)
-    # - errcheck  # Requires extensive refactoring
-    # - gocritic  # Style preferences
-    # - revive    # Doc comment requirements
+    # Correctness (go-lint-pack: Always Enabled)
+    - errcheck
+    # Security (go-lint-pack: Always Enabled)
+    - gosec
+    # Strict (go-lint-pack: Always Enabled)
+    - gocritic
+    - gocyclo
+    - dupl
+    # LLM-Friendly Clean Code (go-lint-pack: Always Enabled)
+    - gocognit
+    - funlen
+    - nestif
+    - goconst
+    - revive
 
 linters-settings:
   goimports:
@@ -24,6 +33,45 @@ linters-settings:
     disable:
       - fieldalignment # Micro-optimization, not worth the churn
       - shadow # Common pattern with err
+
+  gocyclo:
+    min-complexity: 15
+
+  gocognit:
+    min-complexity: 20
+
+  funlen:
+    lines: 80
+    statements: 50
+
+  nestif:
+    min-complexity: 4
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+    ignore-tests: true
+
+  dupl:
+    threshold: 100
+
+  gosec:
+    excludes:
+      - G104 # Deferred .Close() on read-only file
+      - G304 # Validated path variables
+      - G301 # Directory permissions
+
+  revive:
+    rules:
+      - name: exported
+        disabled: true # Too noisy initially
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: var-naming
+      - name: empty-block
+      - name: unnecessary-stmt
+      - name: confusing-naming
+      - name: confusing-results
 
   depguard:
     rules:
@@ -107,3 +155,13 @@ issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - dupl
+        - goconst
+        - funlen
+        - gocognit
+    - path: cmd/
+      linters:
+        - funlen # CLI commands naturally long

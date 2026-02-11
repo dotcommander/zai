@@ -18,14 +18,22 @@ type Config struct {
 
 // APIConfig holds API connection settings.
 type APIConfig struct {
-	Key           string      `mapstructure:"key"`
-	BaseURL       string      `mapstructure:"base_url"`
-	CodingBaseURL string      `mapstructure:"coding_base_url"`
-	CodingPlan    bool        `mapstructure:"coding_plan"`
-	Model         string      `mapstructure:"model"`
-	ImageModel    string      `mapstructure:"image_model"`
-	VideoModel    string      `mapstructure:"video_model"`
-	Retry         RetryConfig `mapstructure:"retry"`
+	Key            string               `mapstructure:"key"`
+	BaseURL        string               `mapstructure:"base_url"`
+	CodingBaseURL  string               `mapstructure:"coding_base_url"`
+	CodingPlan     bool                 `mapstructure:"coding_plan"`
+	Model          string               `mapstructure:"model"`
+	ImageModel     string               `mapstructure:"image_model"`
+	VideoModel     string               `mapstructure:"video_model"`
+	RateLimit      RateLimitConfig      `mapstructure:"rate_limit"`
+	Retry          RetryConfig          `mapstructure:"retry"`
+	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker"`
+}
+
+// RateLimitConfig holds rate limiting settings.
+type RateLimitConfig struct {
+	RequestsPerSecond int `mapstructure:"requests_per_second"`
+	Burst             int `mapstructure:"burst"`
 }
 
 // RetryConfig holds retry behavior settings.
@@ -33,6 +41,14 @@ type RetryConfig struct {
 	MaxAttempts    int           `mapstructure:"max_attempts"`
 	InitialBackoff time.Duration `mapstructure:"initial_backoff"`
 	MaxBackoff     time.Duration `mapstructure:"max_backoff"`
+}
+
+// CircuitBreakerConfig holds circuit breaker settings.
+type CircuitBreakerConfig struct {
+	Enabled          bool          `mapstructure:"enabled"`
+	FailureThreshold int           `mapstructure:"failure_threshold"`
+	SuccessThreshold int           `mapstructure:"success_threshold"`
+	Timeout          time.Duration `mapstructure:"timeout"`
 }
 
 // WebReaderConfig holds web content fetching settings.
@@ -74,10 +90,20 @@ func SetDefaults() {
 	viper.SetDefault("api.image_model", "glm-image")
 	viper.SetDefault("api.video_model", "cogvideox-3")
 
+	// Rate limit defaults
+	viper.SetDefault("api.rate_limit.requests_per_second", 10)
+	viper.SetDefault("api.rate_limit.burst", 5)
+
 	// Retry defaults
 	viper.SetDefault("api.retry.max_attempts", 3)
 	viper.SetDefault("api.retry.initial_backoff", "1s")
 	viper.SetDefault("api.retry.max_backoff", "30s")
+
+	// Circuit breaker defaults
+	viper.SetDefault("api.circuit_breaker.enabled", true)
+	viper.SetDefault("api.circuit_breaker.failure_threshold", 5)
+	viper.SetDefault("api.circuit_breaker.success_threshold", 2)
+	viper.SetDefault("api.circuit_breaker.timeout", "60s")
 
 	// Web reader defaults
 	viper.SetDefault("web_reader.enabled", true)

@@ -93,7 +93,7 @@ func TestClientChat(t *testing.T) {
 				w.WriteHeader(tt.mockStatusCode)
 
 				// Write response
-				json.NewEncoder(w).Encode(tt.mockResponse)
+				json.NewEncoder(w).Encode(tt.mockResponse) //nolint:errcheck // test mock
 			}))
 			defer server.Close()
 
@@ -146,7 +146,7 @@ func TestClientListModels(t *testing.T) {
 			Object: "list",
 			Data:   mockModels,
 		}
-		json.NewEncoder(w).Encode(response)
+		json.NewEncoder(w).Encode(response) //nolint:errcheck // test mock
 	}))
 	defer server.Close()
 
@@ -199,7 +199,7 @@ func TestClientRetryLogic(t *testing.T) {
 			},
 			Usage: Usage{TotalTokens: 10},
 		}
-		json.NewEncoder(w).Encode(response)
+		json.NewEncoder(w).Encode(response) //nolint:errcheck // test mock
 	}))
 	defer server.Close()
 
@@ -235,7 +235,7 @@ func TestClientContextCancellation(t *testing.T) {
 		// Delay response
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(ChatResponse{
+		json.NewEncoder(w).Encode(ChatResponse{ //nolint:errcheck // test mock
 			ID:      "chat-123",
 			Choices: []Choice{{Message: Message{Content: "Response"}}},
 		})
@@ -274,17 +274,17 @@ func TestClientWithFileContent(t *testing.T) {
 	// Create temp file
 	tmpfile, err := os.CreateTemp("", "test")
 	require.NoError(t, err)
-	defer os.Remove(tmpfile.Name())
+	defer os.Remove(tmpfile.Name()) //nolint:errcheck // test cleanup
 
 	content := "This is test file content"
 	_, err = tmpfile.WriteString(content)
 	require.NoError(t, err)
-	tmpfile.Close()
+	tmpfile.Close() //nolint:errcheck // test cleanup
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Read request body to verify file content is included
 		var reqData ChatRequest
-		json.NewDecoder(r.Body).Decode(&reqData)
+		json.NewDecoder(r.Body).Decode(&reqData) //nolint:errcheck // test mock
 
 		// The file content should be in the user message
 		assert.Contains(t, reqData.Messages[len(reqData.Messages)-1].Content, content)
@@ -294,7 +294,7 @@ func TestClientWithFileContent(t *testing.T) {
 			Choices: []Choice{{Message: Message{Content: "Response"}}},
 			Usage:   Usage{TotalTokens: 100},
 		}
-		json.NewEncoder(w).Encode(response)
+		json.NewEncoder(w).Encode(response) //nolint:errcheck // test mock
 	}))
 	defer server.Close()
 

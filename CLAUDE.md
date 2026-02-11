@@ -37,6 +37,14 @@ api:
   model: "glm-4.7"                                 # default
   image_model: "glm-image"                  # default
   video_model: "cogvideox-3"                       # default
+  rate_limit:
+    requests_per_second: 10                        # default
+    burst: 5                                       # default
+  circuit_breaker:
+    enabled: true            # Enable circuit breaker (default: true)
+    failure_threshold: 5      # Threshold for opening circuit (default: 5)
+    success_threshold: 2     # Threshold for closing circuit (default: 2)
+    timeout: 60s             # Timeout before attempting again (default: 60s)
 web_reader:
   enabled: true           # Enable web content fetching
   timeout: 20            # Default timeout in seconds
@@ -197,12 +205,42 @@ api:
     max_attempts: 3        # Maximum retry attempts (default: 3)
     initial_backoff: 1s    # Initial backoff duration (default: 1s)
     max_backoff: 30s       # Maximum backoff duration (default: 30s)
+  rate_limit:
+    requests_per_second: 10  # Maximum requests per second (default: 10)
+    burst: 5                 # Maximum burst requests (default: 5)
 ```
 
 **Retry behavior:**
 - Exponential backoff with jitter
 - Automatic retry on network errors, timeouts, and 5xx/429 errors
 - Configurable via `api.retry.*` config keys
+
+## Circuit Breaker Configuration
+
+The zai CLI implements a circuit breaker pattern to prevent cascading failures when API endpoints are unavailable.
+
+```yaml
+api:
+  circuit_breaker:
+    enabled: true            # Enable circuit breaker (default: true)
+    failure_threshold: 5      # Threshold for opening circuit (default: 5)
+    success_threshold: 2     # Threshold for closing circuit (default: 2)
+    timeout: 60s             # Timeout before attempting again (default: 60s)
+```
+
+**Circuit breaker behavior:**
+- **States**: Closed → Open → Half-Open → Closed
+- **Closed**: Requests pass through normally
+- **Open**: Fail immediately with circuit breaker error
+- **Half-Open**: Allow one request to test if service is restored
+- **State changes are logged** for monitoring and debugging
+- **Independent circuit breakers** for each endpoint (chat, search, reader, etc.)
+- **Does not replace retry logic** - works at a higher level to protect the system
+
+**Example error when circuit is open:**
+```
+Error: circuit breaker 'chat' is open (timeout: 1m0s)
+```
 
 ## Architecture
 

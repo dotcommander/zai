@@ -4,11 +4,22 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
+
+// closeFile closes a file and logs any error.
+func closeFile(file *os.File) {
+	if file != nil {
+		if err := file.Close(); err != nil {
+			slog.Warn("failed to close file", "error", err)
+		}
+	}
+}
 
 // HistoryEntry represents a single chat, image generation, or web reader history entry.
 type HistoryEntry struct {
@@ -32,6 +43,7 @@ type HistoryEntry struct {
 // FileHistoryStore implements HistoryStore with JSONL file storage.
 type FileHistoryStore struct {
 	path string
+	mu   sync.RWMutex
 }
 
 // NewFileHistoryStore creates a history store at the given path.
@@ -50,6 +62,8 @@ func NewFileHistoryStore(path string) *FileHistoryStore {
 
 // Save appends an entry to the history file.
 func (h *FileHistoryStore) Save(entry HistoryEntry) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	// Ensure directory exists
 	dir := filepath.Dir(h.path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -57,9 +71,7 @@ func (h *FileHistoryStore) Save(entry HistoryEntry) error {
 	}
 
 	// Handle response conversion for compatibility
-	if _, ok := entry.Response.(string); ok {
-		// Response is already a string, no conversion needed
-	} else {
+	if _, ok := entry.Response.(string); !ok {
 		// Response is complex type, convert to JSON string for storage
 		data, err := json.Marshal(entry.Response)
 		if err != nil {
@@ -73,11 +85,11 @@ func (h *FileHistoryStore) Save(entry HistoryEntry) error {
 		return fmt.Errorf("failed to marshal history entry: %w", err)
 	}
 
-	file, err := os.OpenFile(h.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(h.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open history file: %w", err)
 	}
-	defer file.Close()
+	defer closeFile(file)
 
 	if _, err := file.WriteString(string(data) + "\n"); err != nil {
 		return fmt.Errorf("failed to write history entry: %w", err)
@@ -88,6 +100,8 @@ func (h *FileHistoryStore) Save(entry HistoryEntry) error {
 
 // GetRecent returns the most recent history entries.
 func (h *FileHistoryStore) GetRecent(limit int) ([]HistoryEntry, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	file, err := os.Open(h.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -95,7 +109,7 @@ func (h *FileHistoryStore) GetRecent(limit int) ([]HistoryEntry, error) {
 		}
 		return nil, fmt.Errorf("failed to open history file: %w", err)
 	}
-	defer file.Close()
+	defer closeFile(file)
 
 	var entries []HistoryEntry
 	scanner := bufio.NewScanner(file)
@@ -126,6 +140,8 @@ func (h *FileHistoryStore) GetRecent(limit int) ([]HistoryEntry, error) {
 
 // Path returns the history file path.
 func (h *FileHistoryStore) Path() string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	return h.path
 }
 

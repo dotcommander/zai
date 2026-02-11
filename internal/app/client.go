@@ -13,13 +13,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"mime/multipart"
 
+	"golang.org/x/time/rate"
+
 	"golang.org/x/sync/errgroup"
 
 	"github.com/dotcommander/zai/internal/app/utils"
+	"github.com/dotcommander/zai/internal/config"
 )
 
 const (
@@ -29,13 +33,21 @@ const (
 // ClientConfig holds all configuration for the ZAI client.
 // Injected at construction time - no global state.
 type ClientConfig struct {
-	APIKey        string
-	BaseURL       string
-	CodingBaseURL string
-	Model         string
-	Timeout       time.Duration
-	Verbose       bool
-	RetryConfig   RetryConfig
+	APIKey         string
+	BaseURL        string
+	CodingBaseURL  string
+	Model          string
+	Timeout        time.Duration
+	Verbose        bool
+	RateLimit      RateLimitConfig
+	RetryConfig    RetryConfig
+	CircuitBreaker config.CircuitBreakerConfig
+}
+
+// RateLimitConfig holds rate limiting configuration.
+type RateLimitConfig struct {
+	RequestsPerSecond int
+	Burst             int
 }
 
 // DefaultChatOptions returns sensible defaults for CLI usage.
@@ -138,6 +150,185 @@ type HTTPDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// CircuitBreaker states
+type CircuitBreakerState int
+
+const (
+	Closed CircuitBreakerState = iota
+	Open
+	HalfOpen
+)
+
+func (s CircuitBreakerState) String() string {
+	switch s {
+	case Closed:
+		return "closed"
+	case Open:
+		return "open"
+	case HalfOpen:
+		return "half-open"
+	default:
+		return "unknown"
+	}
+}
+
+// CircuitBreaker implements a circuit breaker pattern for API calls.
+type CircuitBreaker struct {
+	name            string
+	config          config.CircuitBreakerConfig
+	logger          *slog.Logger
+	state           CircuitBreakerState
+	mu              sync.Mutex
+	failureCount    int
+	successCount    int
+	lastStateChange time.Time
+}
+
+// NewCircuitBreaker creates a new circuit breaker.
+func NewCircuitBreaker(name string, config config.CircuitBreakerConfig, logger *slog.Logger) *CircuitBreaker {
+	return &CircuitBreaker{
+		name:   name,
+		config: config,
+		logger: logger,
+		state:  Closed,
+	}
+}
+
+// Execute wraps a function call with circuit breaker protection.
+func (cb *CircuitBreaker) Execute(fn func() error) error {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	// Check if circuit breaker is open
+	if cb.state == Open {
+		// Check if timeout has passed
+		if time.Since(cb.lastStateChange) < cb.config.Timeout {
+			return fmt.Errorf("circuit breaker '%s' is open (timeout: %v)", cb.name, cb.config.Timeout)
+		}
+		// Move to half-open state
+		cb.state = HalfOpen
+		cb.successCount = 0
+		cb.logger.Info("circuit breaker state change",
+			"name", cb.name,
+			"from", "open",
+			"to", "half-open")
+	}
+
+	// Execute the function
+	err := fn()
+
+	// Record the result
+	cb.recordResult(err)
+
+	return err
+}
+
+// Reset manually resets the circuit breaker to closed state.
+func (cb *CircuitBreaker) Reset() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	cb.state = Closed
+	cb.failureCount = 0
+	cb.successCount = 0
+	cb.lastStateChange = time.Now()
+
+	cb.logger.Info("circuit breaker reset",
+		"name", cb.name,
+		"action", "manual reset")
+}
+
+// recordResult records the success/failure and updates state accordingly.
+func (cb *CircuitBreaker) recordResult(err error) {
+	switch cb.state {
+	case Closed:
+		if err != nil {
+			cb.failureCount++
+			if cb.failureCount >= cb.config.FailureThreshold {
+				cb.setState(Open, err)
+			}
+		} else {
+			cb.failureCount = 0
+			cb.successCount = 0
+		}
+
+	case HalfOpen:
+		if err == nil {
+			cb.successCount++
+			if cb.successCount >= cb.config.SuccessThreshold {
+				cb.setState(Closed, nil)
+			}
+		} else {
+			cb.setState(Open, err)
+		}
+
+	case Open:
+		// In open state, do nothing until timeout
+	}
+}
+
+// setState changes the circuit breaker state and logs the transition.
+func (cb *CircuitBreaker) setState(newState CircuitBreakerState, err error) {
+	if cb.state != newState {
+		oldState := cb.state
+		cb.state = newState
+		cb.lastStateChange = time.Now()
+
+		// Reset counters when transitioning to closed
+		if newState == Closed {
+			cb.failureCount = 0
+			cb.successCount = 0
+		}
+
+		var message string
+		if err != nil {
+			message = fmt.Sprintf("error: %v", err)
+		}
+
+		cb.logger.Info("circuit breaker state change",
+			"name", cb.name,
+			"from", oldState.String(),
+			"to", newState.String(),
+			"reason", message)
+	}
+}
+
+// RateLimitedClient implements HTTPDoer with rate limiting.
+type RateLimitedClient struct {
+	client  HTTPDoer
+	limiter *rate.Limiter
+	logger  *slog.Logger
+}
+
+// NewRateLimitedClient creates a new rate-limited HTTP client.
+func NewRateLimitedClient(client HTTPDoer, rateLimitConfig RateLimitConfig, logger *slog.Logger) HTTPDoer {
+	if rateLimitConfig.RequestsPerSecond <= 0 {
+		// Rate limiting disabled, return original client
+		return client
+	}
+
+	limiter := rate.NewLimiter(rate.Limit(rateLimitConfig.RequestsPerSecond), rateLimitConfig.Burst)
+	return &RateLimitedClient{
+		client:  client,
+		limiter: limiter,
+		logger:  logger,
+	}
+}
+
+// Do implements HTTPDoer interface with rate limiting.
+func (c *RateLimitedClient) Do(req *http.Request) (*http.Response, error) {
+	ctx := req.Context()
+
+	// Wait for token from rate limiter
+	err := c.limiter.Wait(ctx)
+	if err != nil {
+		c.logger.Error("rate limit exceeded", "error", err)
+		return nil, fmt.Errorf("rate limit exceeded: %w", err)
+	}
+
+	return c.client.Do(req)
+}
+
 // FileReader interface for file operations (DIP compliance, enables testing).
 // Deprecated: Use utils.FileReader instead. Kept for backward compatibility.
 type FileReader = utils.FileReader
@@ -148,11 +339,13 @@ type OSFileReader = utils.OSFileReader
 
 // Client implements ChatClient with Z.AI API.
 type Client struct {
-	config     ClientConfig
-	httpClient HTTPDoer
-	logger     *slog.Logger
-	history    HistoryStore
-	fileReader FileReader
+	config          ClientConfig
+	httpClient      HTTPDoer
+	logger          *slog.Logger
+	history         HistoryStore
+	fileReader      FileReader
+	circuitBreakers map[string]*CircuitBreaker
+	mu              sync.RWMutex
 }
 
 // ClientDeps holds optional dependencies for NewClient.
@@ -191,18 +384,46 @@ func NewClientWithDeps(cfg ClientConfig, logger *slog.Logger, history HistorySto
 		fileReader = OSFileReader{}
 	}
 
-	return &Client{
-		config:     cfg,
-		httpClient: httpClient,
-		logger:     logger,
-		history:    history,
-		fileReader: fileReader,
+	// Wrap HTTP client with rate limiting
+	httpClient = NewRateLimitedClient(httpClient, cfg.RateLimit, logger)
+
+	client := &Client{
+		config:          cfg,
+		httpClient:      httpClient,
+		logger:          logger,
+		history:         history,
+		fileReader:      fileReader,
+		circuitBreakers: make(map[string]*CircuitBreaker),
 	}
+
+	// Initialize circuit breakers
+	if cfg.CircuitBreaker.Enabled {
+		client.initCircuitBreakers()
+	}
+
+	return client
 }
 
 // HTTPClient returns the underlying HTTP client for connection reuse.
 func (c *Client) HTTPClient() HTTPDoer {
 	return c.httpClient
+}
+
+// initCircuitBreakers initializes circuit breakers for different API endpoints.
+func (c *Client) initCircuitBreakers() {
+	c.circuitBreakers["chat"] = NewCircuitBreaker("chat", c.config.CircuitBreaker, c.logger)
+	c.circuitBreakers["web_search"] = NewCircuitBreaker("web_search", c.config.CircuitBreaker, c.logger)
+	c.circuitBreakers["reader"] = NewCircuitBreaker("reader", c.config.CircuitBreaker, c.logger)
+	c.circuitBreakers["models"] = NewCircuitBreaker("models", c.config.CircuitBreaker, c.logger)
+	c.circuitBreakers["images"] = NewCircuitBreaker("images", c.config.CircuitBreaker, c.logger)
+	c.circuitBreakers["videos"] = NewCircuitBreaker("videos", c.config.CircuitBreaker, c.logger)
+}
+
+// getCircuitBreaker returns the appropriate circuit breaker for an endpoint.
+func (c *Client) getCircuitBreaker(endpoint string) *CircuitBreaker {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.circuitBreakers[endpoint]
 }
 
 // requireAPIKey validates the API key is configured.
@@ -383,10 +604,14 @@ func (c *Client) buildContent(ctx context.Context, prompt, filePath string) (str
 func (c *Client) buildMessages(content string, opts ChatOptions) []Message {
 	var messages []Message
 
-	// Add system prompt
+	// Add system prompt (custom or default)
+	systemPrompt := opts.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = "Be concise and direct. Answer briefly and to the point."
+	}
 	messages = append(messages, Message{
 		Role:    "system",
-		Content: "Be concise and direct. Answer briefly and to the point.",
+		Content: systemPrompt,
 	})
 
 	// Add current user message
@@ -440,7 +665,7 @@ func calculateBackoff(attempt int, initialBackoff, maxBackoff time.Duration) tim
 	}
 
 	// Exponential backoff: initial * 2^(attempt-1)
-	backoff := initialBackoff * time.Duration(1<<uint(attempt-1))
+	backoff := initialBackoff * time.Duration(1<<uint(attempt-1)) //nolint:gosec // G115: attempt count is small, overflow impossible
 
 	// Cap at max backoff
 	if backoff > maxBackoff {
@@ -450,7 +675,7 @@ func calculateBackoff(attempt int, initialBackoff, maxBackoff time.Duration) tim
 	// Add jitter (±12.5%, centered - so jitter can add or subtract up to 12.5%)
 	// This ensures we never go below the base value by more than 12.5%
 	jitterRange := float64(backoff) * 0.125
-	jitter := time.Duration(jitterRange * (2.0*rand.Float64() - 1.0))
+	jitter := time.Duration(jitterRange * (2.0*rand.Float64() - 1.0)) //nolint:gosec // G404: jitter doesn't need crypto-grade randomness
 
 	return backoff + jitter
 }
@@ -491,8 +716,58 @@ func setJSONHeaders(req *http.Request, apiKey string) {
 	req.Header.Set("Accept-Language", "en-US,en")
 }
 
+// extractEndpointName extracts a standardized name from endpoint path.
+func extractEndpointName(endpoint string) string {
+	switch {
+	case strings.Contains(endpoint, "chat"):
+		return "chat"
+	case strings.Contains(endpoint, "web_search"):
+		return "web_search"
+	case strings.Contains(endpoint, "reader"):
+		return "reader"
+	case strings.Contains(endpoint, "models"):
+		return "models"
+	case strings.Contains(endpoint, "images"):
+		return "images"
+	case strings.Contains(endpoint, "videos"):
+		return "videos"
+	case strings.Contains(endpoint, "audio"):
+		return "audio"
+	default:
+		return "default"
+	}
+}
+
+// closeBody closes the response body and logs any error.
+func closeBody(resp *http.Response) {
+	if err := resp.Body.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to close response body: %v\n", err)
+	}
+}
+
 // executeJSONRequest executes a JSON POST request using HTTPDoer interface.
 func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqData interface{}) ([]byte, error) {
+	if c.config.CircuitBreaker.Enabled {
+		cb := c.getCircuitBreaker(extractEndpointName(endpoint))
+		if cb != nil {
+			var result []byte
+			var internalErr error
+			err := cb.Execute(func() error {
+				result, internalErr = c.executeJSONRequestInternal(ctx, endpoint, reqData)
+				return internalErr
+			})
+			if err != nil {
+				return nil, err
+			}
+			return result, nil
+		}
+	}
+
+	return c.executeJSONRequestInternal(ctx, endpoint, reqData)
+}
+
+// executeJSONRequestInternal is the internal implementation without circuit breaker.
+func (c *Client) executeJSONRequestInternal(ctx context.Context, endpoint string, reqData interface{}) ([]byte, error) {
 	req, err := buildJSONRequest(c.config.BaseURL, c.config.APIKey, ctx, endpoint, reqData)
 	if err != nil {
 		return nil, err
@@ -503,7 +778,7 @@ func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqDat
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -519,6 +794,24 @@ func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqDat
 
 // executeGetRequest executes a GET request using HTTPDoer interface.
 func (c *Client) executeGetRequest(ctx context.Context, endpoint string) ([]byte, error) {
+	if c.config.CircuitBreaker.Enabled {
+		cb := c.getCircuitBreaker(extractEndpointName(endpoint))
+		if cb != nil {
+			var result []byte
+			var internalErr error
+			err := cb.Execute(func() error {
+				result, internalErr = c.executeGetRequestInternal(ctx, endpoint)
+				return internalErr
+			})
+			return result, err
+		}
+	}
+
+	return c.executeGetRequestInternal(ctx, endpoint)
+}
+
+// executeGetRequestInternal is the internal implementation without circuit breaker.
+func (c *Client) executeGetRequestInternal(ctx context.Context, endpoint string) ([]byte, error) {
 	req, err := buildGetRequest(c.config.BaseURL, c.config.APIKey, ctx, endpoint)
 	if err != nil {
 		return nil, err
@@ -529,7 +822,7 @@ func (c *Client) executeGetRequest(ctx context.Context, endpoint string) ([]byte
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -606,7 +899,7 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 	if err != nil {
 		return "", Usage{}, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -768,16 +1061,42 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOpt
 }
 
 // FetchWebContent retrieves and processes web content from a URL.
-func (c *Client) FetchWebContent(ctx context.Context, url string, opts *WebReaderOptions) (*WebReaderResponse, error) {
+func (c *Client) FetchWebContent(ctx context.Context, url string, opts *WebReaderOptions) (*WebReaderResponse, error) { //nolint:gocognit
 	if err := c.requireAPIKey(); err != nil {
 		return nil, err
 	}
 
 	// Validate URL
-	if url == "" {
-		return nil, fmt.Errorf("URL is required")
+	if err := c.validateWebContentURL(url); err != nil {
+		return nil, err
 	}
 
+	// Build request with defaults and options
+	req := c.buildWebReaderRequest(url, opts)
+
+	// Execute API request and parse response
+	webResp, err := c.executeWebReaderRequest(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	c.logger.Debug("fetched web content",
+		"url", webResp.ReaderResult.URL,
+		"title", webResp.ReaderResult.Title)
+
+	return &webResp, nil
+}
+
+// validateWebContentURL validates the URL parameter for web content fetching.
+func (c *Client) validateWebContentURL(url string) error {
+	if url == "" {
+		return fmt.Errorf("URL is required")
+	}
+	return nil
+}
+
+// buildWebReaderRequest builds a WebReaderRequest with defaults and applies options.
+func (c *Client) buildWebReaderRequest(url string, opts *WebReaderOptions) WebReaderRequest {
 	// Build request with defaults
 	req := WebReaderRequest{
 		URL:          url,
@@ -788,46 +1107,51 @@ func (c *Client) FetchWebContent(ctx context.Context, url string, opts *WebReade
 
 	// Apply options
 	if opts != nil {
-		if opts.Timeout != nil {
-			req.Timeout = opts.Timeout
-		}
-		if opts.NoCache != nil {
-			req.NoCache = opts.NoCache
-		}
-		if opts.ReturnFormat != "" {
-			req.ReturnFormat = opts.ReturnFormat
-		}
-		if opts.RetainImages != nil {
-			req.RetainImages = opts.RetainImages
-		}
-		if opts.NoGFM != nil {
-			req.NoGFM = opts.NoGFM
-		}
-		if opts.KeepImgDataURL != nil {
-			req.KeepImgDataURL = opts.KeepImgDataURL
-		}
-		if opts.WithImagesSummary != nil {
-			req.WithImagesSummary = opts.WithImagesSummary
-		}
-		if opts.WithLinksSummary != nil {
-			req.WithLinksSummary = opts.WithLinksSummary
-		}
+		c.applyWebReaderOptions(&req, opts)
 	}
 
+	return req
+}
+
+// applyWebReaderOptions applies WebReaderOptions to the request.
+func (c *Client) applyWebReaderOptions(req *WebReaderRequest, opts *WebReaderOptions) {
+	if opts.Timeout != nil {
+		req.Timeout = opts.Timeout
+	}
+	if opts.NoCache != nil {
+		req.NoCache = opts.NoCache
+	}
+	if opts.ReturnFormat != "" {
+		req.ReturnFormat = opts.ReturnFormat
+	}
+	if opts.RetainImages != nil {
+		req.RetainImages = opts.RetainImages
+	}
+	if opts.NoGFM != nil {
+		req.NoGFM = opts.NoGFM
+	}
+	if opts.KeepImgDataURL != nil {
+		req.KeepImgDataURL = opts.KeepImgDataURL
+	}
+	if opts.WithImagesSummary != nil {
+		req.WithImagesSummary = opts.WithImagesSummary
+	}
+	if opts.WithLinksSummary != nil {
+		req.WithLinksSummary = opts.WithLinksSummary
+	}
+}
+
+// executeWebReaderRequest executes the web reader API call and parses the response.
+func (c *Client) executeWebReaderRequest(ctx context.Context, req WebReaderRequest) (WebReaderResponse, error) {
 	var webResp WebReaderResponse
 	body, err := c.executeJSONRequest(ctx, "reader", req)
 	if err != nil {
-		return nil, fmt.Errorf("web reader API error: %w", err)
+		return WebReaderResponse{}, fmt.Errorf("web reader API error: %w", err)
 	}
 	if err := json.Unmarshal(body, &webResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal web reader response: %w", err)
+		return WebReaderResponse{}, fmt.Errorf("failed to unmarshal web reader response: %w", err)
 	}
-
-	c.logger.Debug("fetched web content",
-		"url", webResp.ReaderResult.URL,
-		"title", webResp.ReaderResult.Title)
-
-	return &webResp, nil
+	return webResp, nil
 }
 
 // validateImageOptions checks if image options are valid.
@@ -854,7 +1178,7 @@ func validateImageOptions(opts ImageOptions) error {
 }
 
 // SearchWeb performs a web search using Z.AI's search API.
-func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions) (*WebSearchResponse, error) {
+func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions) (*WebSearchResponse, error) { //nolint:gocognit,gocyclo
 	if err := c.requireAPIKey(); err != nil {
 		return nil, err
 	}
@@ -1024,7 +1348,7 @@ func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, 
 }
 
 // TranscribeAudio transcribes an audio file using Z.AI's ASR model.
-func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error) {
+func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error) { //nolint:gocyclo,funlen
 	if err := c.requireAPIKey(); err != nil {
 		return nil, err
 	}
@@ -1065,30 +1389,30 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	}
 
 	// Add model
-	writer.WriteField("model", model)
+	writer.WriteField("model", model) //nolint:errcheck // multipart field write
 
 	// Add optional fields
 	if opts.Prompt != "" {
-		writer.WriteField("prompt", opts.Prompt)
+		writer.WriteField("prompt", opts.Prompt) //nolint:errcheck // multipart field write
 	}
 	if opts.Stream {
-		writer.WriteField("stream", "true")
+		writer.WriteField("stream", "true") //nolint:errcheck // multipart field write
 	}
 	if opts.UserID != "" {
-		writer.WriteField("user_id", opts.UserID)
+		writer.WriteField("user_id", opts.UserID) //nolint:errcheck // multipart field write
 	}
 	if opts.RequestID != "" {
-		writer.WriteField("request_id", opts.RequestID)
+		writer.WriteField("request_id", opts.RequestID) //nolint:errcheck // multipart field write
 	}
 	if len(opts.Hotwords) > 0 {
 		hotwordsJSON, err := json.Marshal(opts.Hotwords)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal hotwords: %w", err)
 		}
-		writer.WriteField("hotwords", string(hotwordsJSON))
+		writer.WriteField("hotwords", string(hotwordsJSON)) //nolint:errcheck // multipart field write
 	}
 
-	writer.Close()
+	writer.Close() //nolint:errcheck // multipart writer close
 
 	// Build request
 	url := fmt.Sprintf("%s/audio/transcriptions", c.config.BaseURL)
@@ -1107,7 +1431,7 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp)
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
