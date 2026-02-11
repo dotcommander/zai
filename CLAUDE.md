@@ -2,26 +2,21 @@
 
 CLI tool for chatting with Z.AI GLM models.
 
-## Build & Run
+## Build & Install
 
 ```bash
-go build -o bin/zai .           # Build
-./bin/zai "prompt"              # One-shot
-./bin/zai chat                  # Interactive REPL (styled with lipgloss)
-echo "text" | ./bin/zai         # Stdin pipe
-./bin/zai -f file.go "explain"  # With file context
-./bin/zai -f https://url "sum"  # -f supports URLs too
-./bin/zai reader <url>          # Fetch web content (reader command)
-./bin/zai search "query"        # Web search
-./bin/zai --search "news"       # Search-augmented generation
-./bin/zai image "wizard"        # AI-enhanced image generation
-./bin/zai video "a cat playing" # Video generation
+go build -o bin/zai .                                     # Build
+go build -o bin/zai . && ln -sf $(pwd)/bin/zai ~/go/bin/zai  # Install globally
 ```
 
-## Install Globally
+## Usage
 
 ```bash
-go build -o bin/zai . && ln -sf $(pwd)/bin/zai ~/go/bin/zai
+./bin/zai "prompt"                # One-shot
+./bin/zai chat                    # Interactive REPL
+echo "text" | ./bin/zai           # Stdin pipe
+./bin/zai -f file.go "explain"    # With file context
+./bin/zai --search "query"        # Search-augmented generation
 ```
 
 ## Configuration
@@ -31,35 +26,41 @@ Config file: `~/.config/zai/config.yaml`
 ```yaml
 api:
   key: "your-api-key"
-  base_url: "https://api.z.ai/api/paas/v4"         # default
-  coding_base_url: "https://api.z.ai/api/coding/paas/v4"  # coding API
-  coding_plan: false                               # set true to use coding API
-  model: "glm-4.7"                                 # default
-  image_model: "glm-image"                  # default
-  video_model: "cogvideox-3"                       # default
+  base_url: "https://api.z.ai/api/paas/v4"
+  coding_base_url: "https://api.z.ai/api/coding/paas/v4"
+  coding_plan: false
+  model: "glm-4.7"
+  image_model: "glm-image"
+  video_model: "cogvideox-3"
   rate_limit:
-    requests_per_second: 10                        # default
-    burst: 5                                       # default
+    requests_per_second: 10
+    burst: 5
+  retry:
+    max_attempts: 3
+    initial_backoff: 1s
+    max_backoff: 30s
   circuit_breaker:
-    enabled: true            # Enable circuit breaker (default: true)
-    failure_threshold: 5      # Threshold for opening circuit (default: 5)
-    success_threshold: 2     # Threshold for closing circuit (default: 2)
-    timeout: 60s             # Timeout before attempting again (default: 60s)
+    enabled: true
+    failure_threshold: 5
+    success_threshold: 2
+    timeout: 60s
+
 web_reader:
-  enabled: true           # Enable web content fetching
-  timeout: 20            # Default timeout in seconds
-  cache_enabled: true    # Enable response caching
-  return_format: markdown # Default format
-  auto_detect: true      # Auto-detect URLs in chat
-  max_content_length: 50000 # Max characters to include
+  enabled: true
+  timeout: 20
+  cache_enabled: true
+  return_format: markdown
+  auto_detect: true
+  max_content_length: 50000
+
 web_search:
-  enabled: true           # Enable web search
-  default_count: 10       # Default number of results
-  default_recency: "noLimit" # Time filter
-  timeout: 30            # Default timeout in seconds
-  cache_enabled: true    # Enable search caching
+  enabled: true
+  default_count: 10
+  default_recency: "noLimit"
+  timeout: 30
+  cache_enabled: true
   cache_dir: "~/.config/zai/search_cache"
-  cache_ttl: 24h         # Cache duration
+  cache_ttl: 24h
 ```
 
 Environment: `ZAI_API_KEY` overrides config file.
@@ -68,218 +69,96 @@ Environment: `ZAI_API_KEY` overrides config file.
 
 ### Chat
 ```bash
-zai chat                    # Interactive REPL
-zai chat -f file.go         # Chat with file context
+zai chat                    # Interactive REPL with Charmbracelet lipgloss styling
+zai chat -f file.go         # With file context
 zai chat --think            # Enable reasoning mode
 ```
 
 ### Search
 ```bash
-zai search "golang best practices"              # Basic search
-zai search "AI news" -c 5 -r oneWeek              # With options
-zai search "github.com" -d github.com             # Domain filter
-zai search "query" -o json                        # JSON output
-echo "golang" | zai search                         # From stdin
+zai search "query"              # Web search
+zai search "query" -c 5 -r oneWeek -d github.com  # With filters
+zai chat --search               # Enable search-augmented chat
 ```
 
-**Search in Chat:**
-```bash
-zai chat
-you> search "latest AI news" -c 3
-you> /search "golang patterns" -r oneMonth
-```
+In chat: `search "query"` or `/search "query"`
 
 ### Reader
 ```bash
-zai reader https://example.com                 # Fetch and display
-zai reader https://example.com --format text   # Plain text format
-zai reader https://example.com --no-cache      # Disable caching
-zai reader https://example.com --timeout 30    # Custom timeout
+zai reader https://example.com             # Fetch web content
+zai reader https://example.com --format text --timeout 30
+zai "Summarize https://example.com"        # Auto-fetch URLs in prompts
 ```
 
-### Auto Web Content in Chat
-URLs in prompts are automatically fetched and included:
+### Image
 ```bash
-zai "Summarize https://example.com"  # Fetches and includes content
+zai image "wizard"              # AI-enhanced prompt + auto-download
+zai image "sunset" -s 1024x768 --no-enhance -o output.png
 ```
 
-### Search-Augmented Generation
-```bash
-zai --search "What's happening in AI today?"  # Searches web, adds context
-zai chat --search                              # Enable for entire chat session
-```
-
-### Image Generation
-```bash
-zai image "a wizard"              # AI-enhanced prompt + auto-download
-zai image "sunset" -s 1024x768    # Custom size
-zai image "cat" --no-enhance      # Skip prompt enhancement
-zai image "logo" -o output.png    # Custom filename
-```
-
-**Features:**
-- **AI prompt enhancement** (default on): Transforms simple prompts into professional image generation prompts with lighting, composition, style
-- **Auto-download**: Images saved to `zai-image-{timestamp}.png`
-- Combines original + enhanced prompt for best results
+Auto-downloads to `zai-image-{timestamp}.png`. AI enhancement transforms prompts with lighting/composition/style.
 
 ### Vision
 ```bash
-zai vision -f photo.jpg                     # Describe image
-zai vision -f screenshot.png "What text?"   # Extract text
-zai vision -f https://example.com/img.jpg   # Analyze URL
-zai vision -f chart.png -p "Explain trends" # With custom prompt
+zai vision -f photo.jpg "What text?"           # Analyze image (local or URL)
+zai vision -f chart.png -p "Explain trends"    # Custom prompt
 ```
-
-**Options:**
-- `-f, --file <path-or-url>`: Image file path or URL (required)
-- `-p, --prompt <text>`: Analysis prompt (default: "What do you see in this image?")
-- `-m, --model <name>`: Override vision model (default: glm-4.6v)
-- `-t, --temperature <0.0-1.0>`: Temperature (default: 0.3)
 
 ### Audio
 ```bash
-zai audio -f recording.wav                  # Transcribe audio file
-zai audio -f speech.mp3 --model glm-asr-2512 # With specific model
-zai audio -f interview.wav --prompt "Previous context" # With context
-zai audio -f lecture.wav --hotwords "kubernetes,docker" # Domain vocabulary
-zai audio --video https://youtu.be/abc123   # YouTube transcription
-zai audio -f recording.wav --vad           # Remove silence (reduces costs)
-zai audio -f recording.wav --resume        # Resume partial transcription
-cat audio.wav | zai audio                   # From stdin
+zai audio -f recording.wav                              # Transcribe audio
+zai audio -f speech.mp3 --hotwords "kubernetes,docker"  # Domain vocabulary
+zai audio --video https://youtu.be/abc123 --vad         # YouTube with VAD
 ```
 
-**Options:**
-- `-f, --file <path>`: Audio file path
-- `-m, --model <name>`: ASR model (default: glm-asr-2512)
-- `-p, --prompt <text>`: Context from prior transcriptions (max 8000 chars)
-- `-l, --language <code>`: Language code (e.g., en, zh, ja)
-- `--hotwords <words>`: Comma-separated domain vocabulary (max 100)
-- `--stream`: Enable streaming transcription
-- `--json`: Output in JSON format
-- `--vad`: Apply Voice Activity Detection (remove silence)
-- `--video <url>`: YouTube video URL to transcribe
-- `--preprocess`: Auto-convert to 16kHz mono WAV (default: true)
-- `--resume`: Resume from cached transcription
-- `--clear-cache`: Clear cache and start fresh
+Supports: .wav, .mp3, .mp4, .m4a, .flac, .aac, .ogg (max 25MB). Auto-splits long files into 30s chunks.
 
-**Supported formats:** .wav, .mp3, .mp4, .m4a, .flac, .aac, .ogg
-**Max file size:** 25MB
-**Max duration:** 30 seconds per chunk (auto-splits larger files)
-
-### Video Generation
+### Video
 ```bash
-zai video "A cat playing with a ball"                    # Text-to-video
-zai video -f https://example.com/img.jpg "Animate this"  # Image-to-video
-zai video -f first.jpg -f last.jpg "transition"          # First/last frame
-zai video "sunset over ocean" --quality quality --size 1920x1080
-zai video "prompt" --fps 60 --duration 10 --with-audio
-zai video "prompt" --output my-video.mp4 --show          # Save and play
+zai video "A cat playing"                   # Text-to-video
+zai video -f img.jpg "Animate this"         # Image-to-video
+zai video -f first.jpg -f last.jpg "transition"  # First/last frame
+zai video "prompt" --quality quality --size 1920x1080 --show
 ```
 
-**Options:**
-- `-q, --quality <mode>`: Quality mode (speed=fast, quality=higher)
-- `-s, --size <resolution>`: Video size (1280x720, 1920x1080, 3840x2160, etc.)
-- `--fps <30|60>`: Frame rate (default: 30)
-- `--duration <5|10>`: Duration in seconds (default: 5)
-- `--with-audio`: Generate AI sound effects
-- `-f, --file <url>`: Image URL for image-to-video (specify 1 or 2 for first/last frame)
-- `-o, --output <path>`: Save to custom path
-- `-S, --show`: Open video with default player after generation
-- `--poll-timeout <duration>`: Max wait time (default: 3m)
-
-**Features:**
-- **Async polling**: Automatically polls for completion (typically 1-3 minutes)
-- **Auto-download**: Videos saved to `zai-video-{timestamp}.mp4`
-- **Text-to-Video**: Generate from text description
-- **Image-to-Video**: Animate a single image
-- **First/Last Frame**: Generate transition between two images
-- **Progress indicator**: Animated spinner shows generation progress
-
-**Pricing:** ~$0.2 per video
-
-## Retry Configuration
-
-```yaml
-api:
-  retry:
-    max_attempts: 3        # Maximum retry attempts (default: 3)
-    initial_backoff: 1s    # Initial backoff duration (default: 1s)
-    max_backoff: 30s       # Maximum backoff duration (default: 30s)
-  rate_limit:
-    requests_per_second: 10  # Maximum requests per second (default: 10)
-    burst: 5                 # Maximum burst requests (default: 5)
-```
-
-**Retry behavior:**
-- Exponential backoff with jitter
-- Automatic retry on network errors, timeouts, and 5xx/429 errors
-- Configurable via `api.retry.*` config keys
-
-## Circuit Breaker Configuration
-
-The zai CLI implements a circuit breaker pattern to prevent cascading failures when API endpoints are unavailable.
-
-```yaml
-api:
-  circuit_breaker:
-    enabled: true            # Enable circuit breaker (default: true)
-    failure_threshold: 5      # Threshold for opening circuit (default: 5)
-    success_threshold: 2     # Threshold for closing circuit (default: 2)
-    timeout: 60s             # Timeout before attempting again (default: 60s)
-```
-
-**Circuit breaker behavior:**
-- **States**: Closed → Open → Half-Open → Closed
-- **Closed**: Requests pass through normally
-- **Open**: Fail immediately with circuit breaker error
-- **Half-Open**: Allow one request to test if service is restored
-- **State changes are logged** for monitoring and debugging
-- **Independent circuit breakers** for each endpoint (chat, search, reader, etc.)
-- **Does not replace retry logic** - works at a higher level to protect the system
-
-**Example error when circuit is open:**
-```
-Error: circuit breaker 'chat' is open (timeout: 1m0s)
-```
+Auto-downloads to `zai-video-{timestamp}.mp4`. Async polling (1-3 min). Pricing: ~$0.2/video.
 
 ## Architecture
 
 ```
 cmd/
   root.go     # Main command, stdin handling, one-shot mode
-  chat.go     # Interactive REPL with conversation context and search
-  history.go  # History viewing command
-  search.go   # Web search command
-  web.go      # Web reader command (reader subcommand)
-  image.go    # Image generation command
-  vision.go   # Vision analysis command
-  audio.go    # Audio transcription command
-  video.go    # Video generation command
-  model.go    # Model management command
+  chat.go     # Interactive REPL with conversation context
+  history.go  # History viewing
+  search.go   # Web search
+  web.go      # Web reader (reader subcommand)
+  image.go    # Image generation
+  vision.go   # Vision analysis
+  audio.go    # Audio transcription
+  video.go    # Video generation
+  model.go    # Model management
 internal/
   app/
     cache.go    # File-based search caching
     client.go   # HTTP client, API calls (DI, interfaces)
     types.go    # Request/response types
     history.go  # File-based history storage
-    utils.go    # URL detection, web content and search formatting
+    utils.go    # URL detection, web content/search formatting
   config/
     config.go   # Viper defaults and loading
 ```
 
-**Design**: SOLID-compliant with dependency injection. Client takes `Logger` and `HistoryStore` interfaces.
+**Design**: SOLID-compliant with dependency injection. Client uses `Logger` and `HistoryStore` interfaces.
 
 ## Key Patterns
 
 - **Stdin detection**: `(stat.Mode() & os.ModeCharDevice) == 0`
 - **Stdin + prompt**: Combines as `prompt + <stdin>data</stdin>`
-- **History**: JSONL file at `~/.config/zai/history.jsonl` (includes search history)
+- **History**: JSONL at `~/.config/zai/history.jsonl`
 - **Context**: REPL keeps last 20 messages (10 exchanges)
-- **Web Content**: Auto-detects URLs, fetches via `/paas/v4/reader` API
-- **Web Content Format**: Wrapped in `<web_content>` XML tags with metadata
-- **Web Search**: Queries `/paas/v4/web_search` API with caching and filtering
-- **Search Cache**: File-based with SHA256 keys and TTL expiration
-- **Search Augmentation**: `--search` flag prepends web results as `<web_search_results>` context
+- **Web Content**: Auto-detects URLs, fetches via `/paas/v4/reader` API, wraps in `<web_content>` XML tags
+- **Web Search**: `/paas/v4/web_search` API with SHA256-keyed file cache
+- **Search Augmentation**: `--search` flag prepends `<web_search_results>` context
 - **File flag URLs**: `-f` detects http/https and routes to web reader
-- **Image Enhancement**: LLM transforms simple prompts using professional image engineering framework
-- **Chat TUI**: Styled with Charmbracelet lipgloss (colors, spinner, styled output)
+- **Image Enhancement**: LLM transforms prompts using professional image engineering framework
+- **Retry/Circuit Breaker**: Exponential backoff with jitter; circuit breaker per endpoint (Closed → Open → Half-Open)
