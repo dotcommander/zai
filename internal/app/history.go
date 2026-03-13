@@ -112,6 +112,7 @@ func (h *FileHistoryStore) GetRecent(limit int) ([]HistoryEntry, error) {
 
 	var entries []HistoryEntry
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max line size
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
