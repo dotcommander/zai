@@ -1,9 +1,10 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -41,13 +42,45 @@ var (
 )
 
 func runReader(cmd *cobra.Command, args []string) error {
-	var ctx context.Context
 	ctx, cancel := createContext(2 * time.Minute)
 	defer cancel()
 
 	url := args[0]
 
-	// Create client using factory with custom timeout (no history needed)
+	if err := validateReaderFlags(); err != nil {
+		return err
+	}
+
+	client, logger := buildReaderClient()
+
+	opts := buildReaderOpts()
+
+	resp, err := client.FetchWebContent(ctx, url, opts)
+	if err != nil {
+		return fmt.Errorf("failed to fetch web content: %w", err)
+	}
+
+	if err := outputReaderResult(resp); err != nil {
+		return err
+	}
+
+	saveReaderHistory(logger, url, resp)
+	return nil
+}
+
+// validateReaderFlags validates the reader command flags.
+func validateReaderFlags() error {
+	if readerFormat != "markdown" && readerFormat != "text" {
+		return fmt.Errorf("invalid format: %s (must be 'markdown' or 'text')", readerFormat)
+	}
+	if readerTimeout <= 0 {
+		return errors.New("timeout must be positive")
+	}
+	return nil
+}
+
+// buildReaderClient creates the HTTP client and logger for the reader command.
+func buildReaderClient() (*app.Client, *slog.Logger) {
 	clientConfig := app.ClientConfig{
 		APIKey:  viper.GetString("api.key"),
 		BaseURL: viper.GetString("api.base_url"),
@@ -56,10 +89,13 @@ func runReader(cmd *cobra.Command, args []string) error {
 		Timeout: time.Duration(readerTimeout) * time.Second,
 	}
 	logger := app.NewLogger(clientConfig.Verbose)
-	client := app.NewClient(clientConfig, logger, nil, nil)
+	return app.NewClient(clientConfig, logger, nil, nil), logger
+}
 
-	// Build web reader options
-	opts := &app.WebReaderOptions{
+// buildReaderOpts creates the web reader options from command flags.
+func buildReaderOpts() *app.WebReaderOptions {
+	retainImages := !readerNoRetainImages
+	return &app.WebReaderOptions{
 		ReturnFormat:      readerFormat,
 		Timeout:           &readerTimeout,
 		NoCache:           &readerNoCache,
@@ -67,76 +103,65 @@ func runReader(cmd *cobra.Command, args []string) error {
 		KeepImgDataURL:    &readerKeepImgDataURL,
 		WithImagesSummary: &readerWithImagesSum,
 		WithLinksSummary:  &readerWithLinksSum,
+		RetainImages:      &retainImages,
 	}
+}
 
-	// Set retain images (default true)
-	retainImages := !readerNoRetainImages
-	opts.RetainImages = &retainImages
-
-	// Validate format
-	if readerFormat != "markdown" && readerFormat != "text" {
-		return fmt.Errorf("invalid format: %s (must be 'markdown' or 'text')", readerFormat)
+// outputReaderResult prints the web reader response to stdout.
+func outputReaderResult(resp *app.WebReaderResponse) error {
+	if readerJSON {
+		return outputReaderJSON(resp)
 	}
+	outputReaderText(resp)
+	return nil
+}
 
-	// Validate timeout
-	if readerTimeout <= 0 {
-		return fmt.Errorf("timeout must be positive")
+// outputReaderJSON prints the response as JSON.
+func outputReaderJSON(resp *app.WebReaderResponse) error {
+	output := map[string]interface{}{
+		"url":                resp.ReaderResult.URL,
+		"title":              resp.ReaderResult.Title,
+		"description":        resp.ReaderResult.Description,
+		"content":            resp.ReaderResult.Content,
+		"metadata":           resp.ReaderResult.Metadata,
+		"external_resources": resp.ReaderResult.ExternalResources,
+		"timestamp":          time.Now().Format(time.RFC3339),
 	}
-
-	// Fetch web content
-	resp, err := client.FetchWebContent(ctx, url, opts)
+	data, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to fetch web content: %w", err)
+		return fmt.Errorf("failed to marshal JSON: %w", err)
 	}
+	fmt.Println(string(data))
+	return nil
+}
 
-	// Output results
-	if readerJSON { //nolint:nestif // JSON vs human-readable output branching
-		// Create structured JSON output
-		output := map[string]interface{}{
-			"url":                resp.ReaderResult.URL,
-			"title":              resp.ReaderResult.Title,
-			"description":        resp.ReaderResult.Description,
-			"content":            resp.ReaderResult.Content,
-			"metadata":           resp.ReaderResult.Metadata,
-			"external_resources": resp.ReaderResult.ExternalResources,
-			"timestamp":          time.Now().Format(time.RFC3339),
-		}
+// outputReaderText prints the response in human-readable format.
+func outputReaderText(resp *app.WebReaderResponse) {
+	fmt.Printf("Title: %s\n", resp.ReaderResult.Title)
+	fmt.Printf("URL: %s\n", resp.ReaderResult.URL)
+	if resp.ReaderResult.Description != "" {
+		fmt.Printf("Description: %s\n", resp.ReaderResult.Description)
+	}
+	fmt.Printf("\nContent:\n%s\n", resp.ReaderResult.Content)
 
-		data, err := json.MarshalIndent(output, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal JSON: %w", err)
-		}
-		fmt.Println(string(data))
-	} else {
-		// Display human-readable results
-		fmt.Printf("Title: %s\n", resp.ReaderResult.Title)
-		fmt.Printf("URL: %s\n", resp.ReaderResult.URL)
-		if resp.ReaderResult.Description != "" {
-			fmt.Printf("Description: %s\n", resp.ReaderResult.Description)
-		}
-		fmt.Printf("\nContent:\n%s\n", resp.ReaderResult.Content)
-
-		// Display metadata if available
-		if len(resp.ReaderResult.Metadata) > 0 {
-			fmt.Printf("\nMetadata:\n")
-			for k, v := range resp.ReaderResult.Metadata {
-				fmt.Printf("  %s: %v\n", k, v)
-			}
-		}
-
-		// Display external resources if available
-		if len(resp.ReaderResult.ExternalResources) > 0 {
-			fmt.Printf("\nExternal Resources:\n")
-			for k, v := range resp.ReaderResult.ExternalResources {
-				fmt.Printf("  %s: %v\n", k, v)
-			}
+	if len(resp.ReaderResult.Metadata) > 0 {
+		fmt.Printf("\nMetadata:\n")
+		for k, v := range resp.ReaderResult.Metadata {
+			fmt.Printf("  %s: %v\n", k, v)
 		}
 	}
 
-	// Save to history (using default location)
+	if len(resp.ReaderResult.ExternalResources) > 0 {
+		fmt.Printf("\nExternal Resources:\n")
+		for k, v := range resp.ReaderResult.ExternalResources {
+			fmt.Printf("  %s: %v\n", k, v)
+		}
+	}
+}
+
+// saveReaderHistory saves the web reader result to history.
+func saveReaderHistory(logger *slog.Logger, url string, resp *app.WebReaderResponse) {
 	history := app.NewFileHistoryStore("")
-
-	// Create a history entry for web content
 	entry := app.NewWebHistoryEntry(
 		resp.ID,
 		fmt.Sprintf("Fetch web content: %s", url),
@@ -146,11 +171,9 @@ func runReader(cmd *cobra.Command, args []string) error {
 	if err := history.Save(entry); err != nil {
 		logger.Warn("failed to save to history", "error", err)
 	}
-
-	return nil
 }
 
-func init() {
+func registerReaderCmd() {
 	rootCmd.AddCommand(readerCmd)
 
 	// Web reader flags

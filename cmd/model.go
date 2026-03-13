@@ -27,7 +27,7 @@ var modelListCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerModelCmd() {
 	rootCmd.AddCommand(modelCmd)
 	modelCmd.AddCommand(modelListCmd)
 

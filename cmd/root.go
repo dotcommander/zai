@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -109,13 +110,11 @@ History:
 			viper.Set("system", stdinData)
 			stdinUsedForSystem = true
 		} else if systemVal != "" {
-			// Try reading as file with path validation
-			if err := validateAndReadSystemFile(systemVal); err != nil {
-				// Only show error if it's not a "file not found" error
-				if !os.IsNotExist(err) {
-					return fmt.Errorf("failed to read system file: %w", err)
-				}
+			resolvedSystem, _, err := resolveSystemPrompt(systemVal)
+			if err != nil {
+				return fmt.Errorf("failed to resolve system prompt: %w", err)
 			}
+			viper.Set("system", resolvedSystem)
 		}
 
 		// If stdin wasn't used for system prompt, prepend it to user prompt as context
@@ -148,7 +147,20 @@ History:
 	},
 }
 
+// Execute is the entry point for the CLI. It registers all subcommands and runs the root command.
 func Execute() {
+	registerRootCmd()
+	registerAudioCmd()
+	registerChatCmd()
+	registerHistoryCmd()
+	registerImageCmd()
+	registerModelCmd()
+	registerReaderCmd()
+	registerSearchCmd()
+	registerVersionCmd()
+	registerVideoCmd()
+	registerVisionCmd()
+
 	if err := rootCmd.Execute(); err != nil {
 		printStyledError(err)
 		os.Exit(1)
@@ -195,7 +207,7 @@ func isUsageError(errMsg string) bool {
 	return false
 }
 
-func init() {
+func registerRootCmd() {
 	// Enable custom styled error output
 	rootCmd.SilenceUsage = true
 	rootCmd.SilenceErrors = true
@@ -311,7 +323,8 @@ func initConfig() error {
 
 	// Always read config file (moved outside if/else to fix --config flag bug)
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
 			return err
 		}
 	}
@@ -321,7 +334,7 @@ func initConfig() error {
 	viper.AutomaticEnv()
 
 	if viper.GetString("api.key") == "" {
-		return fmt.Errorf("API key required: set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
+		return errors.New("API key required: set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
 	}
 
 	return nil
@@ -424,51 +437,62 @@ func readStdin() (string, error) {
 	return strings.TrimSpace(dataStr), nil
 }
 
-// validateAndReadSystemFile validates the system file path and reads its content
-func validateAndReadSystemFile(path string) error {
-	// Clean the path to resolve any . or .. components
-	cleanPath := filepath.Clean(path)
-
-	// Check for path traversal attempts
-	if strings.Contains(cleanPath, "..") {
-		return fmt.Errorf("path traversal not allowed in system file path")
+// resolveSystemPrompt returns file contents if value points to an existing file.
+// Returns (value, false, nil) when the path doesn't exist so callers can decide fallback behavior.
+func resolveSystemPrompt(value string) (string, bool, error) {
+	if value == "" {
+		return "", false, nil
 	}
 
-	// Get current working directory
-	cwd, err := os.Getwd()
+	cleanPath := filepath.Clean(value)
+	if strings.HasPrefix(cleanPath, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false, fmt.Errorf("failed to get home directory: %w", err)
+		}
+		if cleanPath == "~" {
+			cleanPath = home
+		} else {
+			cleanPath = filepath.Join(home, strings.TrimPrefix(cleanPath, "~/"))
+		}
+	}
+
+	info, err := os.Stat(cleanPath)
 	if err != nil {
-		return fmt.Errorf("failed to get current working directory: %w", err)
+		if os.IsNotExist(err) {
+			return value, false, nil
+		}
+		return "", false, err
 	}
 
-	// Check if the path is within the current working directory using directory walk
-	absPath, err := filepath.Abs(cleanPath)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path: %w", err)
+	if info.IsDir() {
+		return "", false, fmt.Errorf("system prompt path is a directory: %s", cleanPath)
 	}
 
-	absCwd, err := filepath.Abs(cwd)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute current working directory: %w", err)
-	}
-
-	// Check if the absolute path starts with the absolute current working directory
-	if !strings.HasPrefix(absPath, absCwd) {
-		return fmt.Errorf("system file path must be within current working directory")
-	}
-
-	// Check if file exists and is readable
-	if _, err := os.Stat(cleanPath); err != nil {
-		return err // Return the original error (likely file not found)
-	}
-
-	// Read the file content
 	content, err := os.ReadFile(cleanPath)
 	if err != nil {
-		return fmt.Errorf("failed to read file: %w", err)
+		return "", false, fmt.Errorf("failed to read file: %w", err)
 	}
 
-	viper.Set("system", string(content))
-	return nil
+	return string(content), true, nil
+}
+
+// looksLikeSystemPromptPath checks whether a value appears to be a filesystem path.
+func looksLikeSystemPromptPath(value string) bool {
+	if value == "" {
+		return false
+	}
+
+	if strings.HasPrefix(value, "~") || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") {
+		return true
+	}
+
+	if strings.Contains(value, string(filepath.Separator)) {
+		return true
+	}
+
+	ext := filepath.Ext(value)
+	return ext != ""
 }
 
 // runOneShot executes a single prompt and exits.
@@ -527,6 +551,7 @@ func augmentWithWebSearch(ctx context.Context, client *app.Client, cfg RunConfig
 	searchOpts := app.SearchOptions{
 		Count:         5,
 		RecencyFilter: "oneWeek",
+		Language:      viper.GetString("web_search.language"),
 	}
 	results, err := client.SearchWeb(ctx, prompt, searchOpts)
 	if err != nil {

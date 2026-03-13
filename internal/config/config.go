@@ -66,6 +66,7 @@ type WebSearchConfig struct {
 	Enabled        bool          `mapstructure:"enabled"`
 	DefaultCount   int           `mapstructure:"default_count"`
 	DefaultRecency string        `mapstructure:"default_recency"`
+	Language       string        `mapstructure:"language"`
 	Timeout        int           `mapstructure:"timeout"`
 	CacheEnabled   bool          `mapstructure:"cache_enabled"`
 	CacheDir       string        `mapstructure:"cache_dir"`
@@ -121,6 +122,7 @@ func SetDefaults() {
 	viper.SetDefault("web_search.enabled", true)
 	viper.SetDefault("web_search.default_count", 10)
 	viper.SetDefault("web_search.default_recency", "noLimit")
+	viper.SetDefault("web_search.language", "en")
 	viper.SetDefault("web_search.timeout", 30)
 	viper.SetDefault("web_search.cache_enabled", true)
 	viper.SetDefault("web_search.cache_dir", filepath.Join(home, ".config", "zai", "search_cache"))

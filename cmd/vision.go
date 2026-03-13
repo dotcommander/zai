@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -8,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/dotcommander/zai/internal/app"
-	"github.com/dotcommander/zai/internal/app/utils"
+	"github.com/dotcommander/zai/internal/app/fileutil"
 )
 
 var (
@@ -33,7 +34,7 @@ Examples:
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if visionFile == "" {
-			return fmt.Errorf("image required: use -f <image-path-or-url>")
+			return errors.New("image required: use -f <image-path-or-url>")
 		}
 		prompt := ""
 		if len(args) > 0 {
@@ -47,7 +48,9 @@ Examples:
 type ImageSource int
 
 const (
+	// ImageSourceURL indicates the image is referenced by a remote URL.
 	ImageSourceURL ImageSource = iota
+	// ImageSourceFile indicates the image is a local file path.
 	ImageSourceFile
 )
 
@@ -71,21 +74,21 @@ func buildVisionPrompt(userPrompt, flagPrompt, defaultPrompt string) string {
 }
 
 // encodeLocalImage reads and encodes a local image file to base64 data URI
-func encodeLocalImage(imagePath string, fileReader utils.FileReader) (string, error) {
+func encodeLocalImage(imagePath string, fileReader fileutil.FileReader) (string, error) {
 	data, err := fileReader.ReadFile(imagePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read image file: %w", err)
 	}
 
-	mimeType, err := utils.DetectImageMimeType(imagePath)
+	mimeType, err := fileutil.DetectImageMimeType(imagePath)
 	if err != nil {
 		return "", err
 	}
 
-	return utils.EncodeBytesToDataURI(data, mimeType), nil
+	return fileutil.EncodeBytesToDataURI(data, mimeType), nil
 }
 
-func init() {
+func registerVisionCmd() {
 	visionCmd.Flags().StringVarP(&visionFile, "file", "f", "", "Image file path or URL (required)")
 	visionCmd.Flags().StringVarP(&visionPrompt, "prompt", "p", "", "Analysis prompt (default: describe the image)")
 	visionCmd.Flags().StringVarP(&visionModel, "model", "m", "", "Override vision model (default: glm-4.6v)")
@@ -105,7 +108,7 @@ func runVision(imageSource, prompt string) error {
 	prompt = buildVisionPrompt(prompt, visionPrompt, "What do you see in this image? Please provide a detailed description.")
 
 	// Determine image source type and handle accordingly
-	imageBase64, err := processImageSource(imageSource, client)
+	imageBase64, err := processImageSource(imageSource)
 	if err != nil {
 		return fmt.Errorf("failed to process image: %w", err)
 	}
@@ -135,7 +138,7 @@ func runVision(imageSource, prompt string) error {
 }
 
 // processImageSource handles URL and local image sources appropriately
-func processImageSource(imageSource string, client *app.Client) (string, error) {
+func processImageSource(imageSource string) (string, error) {
 	sourceType := detectImageSource(imageSource)
 
 	switch sourceType {
@@ -144,7 +147,7 @@ func processImageSource(imageSource string, client *app.Client) (string, error) 
 		return imageSource, nil
 	case ImageSourceFile:
 		fmt.Printf("📁 Analyzing image: %s\n", imageSource)
-		fileReader := utils.OSFileReader{}
+		fileReader := fileutil.OSFileReader{}
 		return encodeLocalImage(imageSource, fileReader)
 	default:
 		return "", fmt.Errorf("unsupported image source: %s", imageSource)

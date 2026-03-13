@@ -57,6 +57,7 @@ web_search:
   enabled: true
   default_count: 10
   default_recency: "noLimit"
+  language: "en"
   timeout: 30
   cache_enabled: true
   cache_dir: "~/.config/zai/search_cache"
@@ -162,3 +163,10 @@ internal/
 - **File flag URLs**: `-f` detects http/https and routes to web reader
 - **Image Enhancement**: LLM transforms prompts using professional image engineering framework
 - **Retry/Circuit Breaker**: Exponential backoff with jitter; circuit breaker per endpoint (Closed → Open → Half-Open)
+
+## Operational Context
+
+- In `cmd/chat.go`, `exit`/`/exit` must return from the REPL loop (not just print Goodbye), otherwise chat continues running.
+- Chat input is read in a goroutine and consumed via channels so `SIGINT`/Ctrl-C can terminate even while waiting on stdin.
+- `zai chat` supports command-local model override via `--model`/`-m`, wired to `app.ChatOptions.Model` in `initializeChatOptions`.
+- `system` can be a literal prompt or file path; in chat init, path-like values that do not resolve fall back to the built-in concise default prompt.

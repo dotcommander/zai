@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -21,6 +22,7 @@ var (
 	searchCount   int
 	searchRecency string
 	searchDomain  string
+	searchLang    string
 	searchFormat  string
 )
 
@@ -40,12 +42,13 @@ Examples:
 	RunE: runSearch,
 }
 
-func init() {
+func registerSearchCmd() {
 	rootCmd.AddCommand(searchCmd)
 
 	searchCmd.Flags().IntVarP(&searchCount, "count", "c", 0, "Number of results (1-50)")
 	searchCmd.Flags().StringVarP(&searchRecency, "recency", "r", "", "Time filter: oneDay, oneWeek, oneMonth, oneYear, noLimit")
 	searchCmd.Flags().StringVarP(&searchDomain, "domain", "d", "", "Limit to specific domain")
+	searchCmd.Flags().StringVarP(&searchLang, "lang", "l", "", "Search language (e.g., en, zh). Default: config value")
 	searchCmd.Flags().StringVarP(&searchFormat, "format", "o", "table", "Output format: table, detailed, json")
 }
 
@@ -58,7 +61,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	// Check if web search is enabled
 	if !cfg.WebSearch.Enabled {
-		return fmt.Errorf("web search is disabled in configuration")
+		return errors.New("web search is disabled in configuration")
 	}
 
 	// Get query from args or stdin
@@ -67,16 +70,17 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	case len(args) > 0:
 		query = args[0]
 	case hasStdinData():
-		data, err := io.ReadAll(os.Stdin)
+		var data []byte
+		data, err = io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("failed to read from stdin: %w", err)
 		}
 		query = strings.TrimSpace(string(data))
 		if query == "" {
-			return fmt.Errorf("empty query from stdin")
+			return errors.New("empty query from stdin")
 		}
 	default:
-		return fmt.Errorf("search query is required")
+		return errors.New("search query is required")
 	}
 
 	// Validate format
@@ -92,6 +96,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		Count:         searchCount,
 		DomainFilter:  searchDomain,
 		RecencyFilter: searchRecency,
+		Language:      searchLang,
 	}
 
 	// Use defaults if not specified
@@ -100,6 +105,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 	if opts.RecencyFilter == "" {
 		opts.RecencyFilter = cfg.WebSearch.DefaultRecency
+	}
+	if opts.Language == "" {
+		opts.Language = cfg.WebSearch.Language
 	}
 
 	// Create client using factory with custom timeout
@@ -311,9 +319,7 @@ func extractDomain(rawURL string) string {
 	host = strings.TrimSuffix(host, "]")
 
 	// Remove www prefix
-	if strings.HasPrefix(host, "www.") {
-		host = host[4:]
-	}
+	host = strings.TrimPrefix(host, "www.")
 
 	return host
 }

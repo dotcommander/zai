@@ -1,3 +1,4 @@
+//nolint:revive // package name 'version' is intentional and conventional for version packages
 package version
 
 import (
@@ -7,6 +8,8 @@ import (
 )
 
 // Version information, extracted automatically from debug.BuildInfo.
+//
+//nolint:gochecknoglobals // these vars are set by the linker at build time and overridden in tests
 var (
 	// Version is the current version of the application.
 	Version = "0.1.0"
@@ -18,8 +21,9 @@ var (
 	Build = "unknown"
 )
 
-func init() {
-	// Extract version info from debug.BuildInfo automatically
+// Init populates Version, Commit, and Build from debug.BuildInfo.
+// Call this once at program startup before reading the version variables.
+func Init() {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return

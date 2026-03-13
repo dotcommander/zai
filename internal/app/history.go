@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,11 +11,11 @@ import (
 	"time"
 )
 
-// closeFile closes a file and logs any error.
+// closeFile closes a file and prints any error to stderr.
 func closeFile(file *os.File) {
 	if file != nil {
 		if err := file.Close(); err != nil {
-			slog.Warn("failed to close file", "error", err)
+			fmt.Fprintf(os.Stderr, "failed to close file: %v\n", err)
 		}
 	}
 }
@@ -66,7 +65,7 @@ func (h *FileHistoryStore) Save(entry HistoryEntry) error {
 	defer h.mu.Unlock()
 	// Ensure directory exists
 	dir := filepath.Dir(h.path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("failed to create history directory: %w", err)
 	}
 

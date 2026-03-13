@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -50,7 +51,7 @@ var imageListCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerImageCmd() {
 	// Main image command
 	imageCmd.Flags().StringVarP(&imageQuality, "quality", "q", "hd", "Image quality: hd or standard (default: hd)")
 	imageCmd.Flags().StringVarP(&imageSize, "size", "s", "1024x1024", "Image size: 1024x1024, 1024x768, 768x1024, or 512x512 (default: 1024x1024)")
@@ -155,7 +156,7 @@ func runImageGeneration(prompt string) error {
 	saveToHistory(prompt, imageData, opts.Model)
 
 	// Display and handle the result
-	return displayImageResult(imageData, finalPrompt, imageSize)
+	return displayImageResult(ctx, imageData, finalPrompt, imageSize)
 }
 
 // buildImageOptions creates image options from command line flags and config.
@@ -219,6 +220,7 @@ type ImageOutputHandler interface {
 // DefaultImageOutputHandler prints to stdout/stderr.
 type DefaultImageOutputHandler struct{}
 
+// PrintSuccess prints the successful image generation result.
 func (h *DefaultImageOutputHandler) PrintSuccess(result *ImageResult) {
 	fmt.Printf("\n✅ Image generated successfully!\n")
 	if result.Data.Width > 0 && result.Data.Height > 0 {
@@ -230,22 +232,27 @@ func (h *DefaultImageOutputHandler) PrintSuccess(result *ImageResult) {
 	fmt.Printf("⏰ Expires: 30 days from now\n")
 }
 
+// PrintSaveError prints a warning when saving the image fails.
 func (h *DefaultImageOutputHandler) PrintSaveError(err error) {
 	fmt.Printf("⚠️  Warning: Failed to save image: %v\n", err)
 }
 
+// PrintCopyError prints a warning when copying to clipboard fails.
 func (h *DefaultImageOutputHandler) PrintCopyError(err error) {
 	fmt.Printf("⚠️  Warning: Failed to copy to clipboard: %v\n", err)
 }
 
+// PrintViewerError prints a warning when opening the image viewer fails.
 func (h *DefaultImageOutputHandler) PrintViewerError(err error) {
 	fmt.Printf("⚠️  Warning: Failed to open image viewer: %v\n", err)
 }
 
+// PrintSaveSuccess prints the path where the image was saved.
 func (h *DefaultImageOutputHandler) PrintSaveSuccess(path string) {
 	fmt.Printf("💾 Saved to: %s\n", path)
 }
 
+// PrintCopySuccess prints a confirmation that the URL was copied to clipboard.
 func (h *DefaultImageOutputHandler) PrintCopySuccess() {
 	fmt.Printf("📋 Copied URL to clipboard\n")
 }
@@ -258,7 +265,7 @@ type ImageOutputConfig struct {
 }
 
 // ProcessImageResult processes the image result and handles all output operations.
-func ProcessImageResult(result *ImageResult, cfg ImageOutputConfig, handler ImageOutputHandler, saver *ImageSaver) error {
+func ProcessImageResult(ctx context.Context, result *ImageResult, cfg ImageOutputConfig, handler ImageOutputHandler, saver *ImageSaver) error {
 	// Print success message
 	handler.PrintSuccess(result)
 
@@ -270,7 +277,7 @@ func ProcessImageResult(result *ImageResult, cfg ImageOutputConfig, handler Imag
 	}
 
 	// Save to disk
-	saveResult := saver.Save(result.Data.URL, outputPath)
+	saveResult := saver.Save(ctx, result.Data.URL, outputPath)
 	if saveResult.Error != nil {
 		handler.PrintSaveError(saveResult.Error)
 	} else {
@@ -288,7 +295,7 @@ func ProcessImageResult(result *ImageResult, cfg ImageOutputConfig, handler Imag
 
 	// Open in viewer
 	if cfg.Show {
-		if err := openImageViewer(result.Data.URL); err != nil {
+		if err := openImageViewer(ctx, result.Data.URL); err != nil {
 			handler.PrintViewerError(err)
 		}
 	}
@@ -297,7 +304,7 @@ func ProcessImageResult(result *ImageResult, cfg ImageOutputConfig, handler Imag
 }
 
 // displayImageResult handles displaying, saving, and opening the generated image.
-func displayImageResult(imageData app.ImageData, prompt, size string) error {
+func displayImageResult(ctx context.Context, imageData app.ImageData, prompt, size string) error {
 	result := &ImageResult{
 		Data:   imageData,
 		Prompt: prompt,
@@ -313,7 +320,7 @@ func displayImageResult(imageData app.ImageData, prompt, size string) error {
 	handler := &DefaultImageOutputHandler{}
 	saver := NewImageSaver(nil)
 
-	return ProcessImageResult(result, cfg, handler, saver)
+	return ProcessImageResult(ctx, result, cfg, handler, saver)
 }
 
 // saveToHistory saves the image to history store.
@@ -380,8 +387,8 @@ type ImageSaveResult struct {
 }
 
 // Save downloads an image from URL and saves to file.
-func (s *ImageSaver) Save(url, filePath string) *ImageSaveResult {
-	result := s.downloader.Download(url, filePath)
+func (s *ImageSaver) Save(ctx context.Context, url, filePath string) *ImageSaveResult {
+	result := s.downloader.Download(ctx, url, filePath)
 	return &ImageSaveResult{
 		FilePath: result.FilePath,
 		URL:      url,
@@ -395,17 +402,19 @@ func copyToClipboard(url string) error {
 	var cmd *exec.Cmd
 	var err error
 
+	ctx := context.Background()
+
 	// Platform-specific commands
 	if _, err = exec.LookPath("pbcopy"); err == nil { //nolint:nestif // platform detection requires chained lookups
-		cmd = exec.Command("pbcopy")
+		cmd = exec.CommandContext(ctx, "pbcopy")
 	} else if _, err = exec.LookPath("xclip"); err == nil { // Linux
-		cmd = exec.Command("xclip", "-selection", "clipboard")
+		cmd = exec.CommandContext(ctx, "xclip", "-selection", "clipboard")
 	} else if _, err = exec.LookPath("xsel"); err == nil { // Linux (alternative)
-		cmd = exec.Command("xsel", "--clipboard", "--input")
+		cmd = exec.CommandContext(ctx, "xsel", "--clipboard", "--input")
 	} else if _, err = exec.LookPath("clip"); err == nil { // Windows
-		cmd = exec.Command("clip")
+		cmd = exec.CommandContext(ctx, "clip")
 	} else {
-		return fmt.Errorf("no suitable clipboard tool found (requires: pbcopy/macOS, xclip/xsel/Linux, or clip/Windows)")
+		return errors.New("no suitable clipboard tool found (requires: pbcopy/macOS, xclip/xsel/Linux, or clip/Windows)")
 	}
 
 	cmd.Stdin = strings.NewReader(url)
@@ -413,6 +422,6 @@ func copyToClipboard(url string) error {
 }
 
 // openImageViewer opens URL with default viewer
-func openImageViewer(url string) error {
-	return app.OpenWith(url)
+func openImageViewer(ctx context.Context, url string) error {
+	return app.OpenWith(ctx, url)
 }

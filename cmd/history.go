@@ -26,7 +26,7 @@ var historyCmd = &cobra.Command{
 	},
 }
 
-func init() {
+func registerHistoryCmd() {
 	rootCmd.AddCommand(historyCmd)
 	historyCmd.Flags().IntVarP(&historyLimit, "limit", "l", 10, "number of entries (0 for all)")
 	historyCmd.Flags().BoolVar(&historyJSON, "json", false, "Output in JSON format")

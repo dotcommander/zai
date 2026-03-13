@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,15 +31,27 @@ var chatCmd = &cobra.Command{
 The -f flag loads a file into context for the entire session.
 
 Examples:
-  zai chat                    # Start REPL
-  zai chat -f main.go         # Start REPL with file in context`,
+	 zai chat                    # Start REPL
+	 zai chat -f main.go         # Start REPL with file in context
+	 zai chat --model glm-4.7    # Override model for this session`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runChatREPL()
 	},
 }
 
-func init() {
+var chatModel string
+
+// chatSession holds the mutable state for a single chat REPL session.
+type chatSession struct {
+	client        *app.Client
+	searchEnabled bool
+	context       []app.Message
+	history       []string
+}
+
+func registerChatCmd() {
 	rootCmd.AddCommand(chatCmd)
+	chatCmd.Flags().StringVarP(&chatModel, "model", "m", "", "Override model for this chat session")
 }
 
 // animateThinking displays an animated spinner while waiting for API response.
@@ -123,7 +136,7 @@ func printStyledHelp() {
 }
 
 // runChatREPL starts the interactive chat session.
-func runChatREPL() error { //nolint:gocognit,gocyclo // TODO: decompose REPL into smaller functions
+func runChatREPL() error { //nolint:gocognit,gocyclo,revive,funlen // REPL loop - signal handling, goroutine, and loop are tightly coupled
 	// Set up signal handling for graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -132,36 +145,70 @@ func runChatREPL() error { //nolint:gocognit,gocyclo // TODO: decompose REPL int
 	client, baseOpts, searchEnabled := initializeChatOptions()
 
 	// Track conversation context and history
-	var conversationContext []app.Message
-	var sessionHistory []string
+	sess := &chatSession{
+		client:        client,
+		searchEnabled: searchEnabled,
+	}
 
 	// Show welcome
 	printWelcomeBanner(baseOpts.FilePath, searchEnabled)
 
+	// Read input on a separate goroutine so Ctrl-C can exit immediately.
+	inputCh := make(chan string)
+	inputErrCh := make(chan error, 1)
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			inputCh <- strings.TrimSpace(scanner.Text())
+		}
+		if err := scanner.Err(); err != nil {
+			inputErrCh <- err
+		}
+		close(inputCh)
+	}()
+
 	// Main REPL loop
-	scanner := bufio.NewScanner(os.Stdin)
 	for {
-		if shouldExitREPL(ctx) {
-			break
+		fmt.Print(theme.Prompt.Render("you> "))
+
+		var input string
+		select {
+		case <-ctx.Done():
+			fmt.Println()
+			fmt.Println(theme.Dim.Render("Goodbye!"))
+			fmt.Println()
+			return nil
+		case err := <-inputErrCh:
+			return fmt.Errorf("failed to read chat input: %w", err)
+		case line, ok := <-inputCh:
+			if !ok {
+				fmt.Println()
+				fmt.Println(theme.Dim.Render("Goodbye!"))
+				fmt.Println()
+				return nil
+			}
+			input = line
 		}
 
-		input := readUserInput(scanner)
 		if input == "" {
 			continue
 		}
 
 		// Handle special commands
-		if handled, err := handleSpecialCommands(input, &conversationContext, &sessionHistory); handled {
-			if err != nil {
-				fmt.Println(theme.ErrorText.Render("Error: ") + theme.Dim.Render(err.Error()))
+		handled, shouldExit := handleSpecialCommands(input, sess)
+		if handled {
+			if shouldExit {
 				fmt.Println()
+				fmt.Println(theme.Dim.Render("Goodbye!"))
+				fmt.Println()
+				return nil
 			}
 			continue
 		}
 
 		// Handle search command
 		if isSearchCommand(input) {
-			if err := handleSearchCommand(ctx, client, input, &conversationContext, &sessionHistory); err != nil {
+			if err := handleSearchCommand(ctx, sess, input); err != nil {
 				fmt.Println(theme.ErrorText.Render("Error: ") + theme.Dim.Render(err.Error()))
 				fmt.Println()
 			}
@@ -170,7 +217,7 @@ func runChatREPL() error { //nolint:gocognit,gocyclo // TODO: decompose REPL int
 
 		// Handle web command
 		if isWebCommand(input) {
-			if err := handleWebCommand(ctx, client, input, &conversationContext, &sessionHistory); err != nil {
+			if err := handleWebCommand(ctx, sess, input); err != nil {
 				fmt.Println(theme.ErrorText.Render("Error: ") + theme.Dim.Render(err.Error()))
 				fmt.Println()
 			}
@@ -178,14 +225,11 @@ func runChatREPL() error { //nolint:gocognit,gocyclo // TODO: decompose REPL int
 		}
 
 		// Handle regular chat message
-		if err := handleRegularChat(ctx, client, baseOpts, input, searchEnabled, &conversationContext, &sessionHistory); err != nil {
+		if err := handleRegularChat(ctx, sess, baseOpts, input); err != nil {
 			fmt.Println(theme.ErrorText.Render("Error: ") + theme.Dim.Render(err.Error()))
 			fmt.Println()
-			continue
 		}
 	}
-
-	return nil
 }
 
 // initializeChatOptions sets up the client and base options for the chat session.
@@ -193,63 +237,54 @@ func initializeChatOptions() (*app.Client, app.ChatOptions, bool) {
 	client := newClient()
 	baseOpts := app.DefaultChatOptions()
 	baseOpts.FilePath = viper.GetString("file")
+	baseOpts.Model = strings.TrimSpace(chatModel)
 	baseOpts.Think = viper.GetBool("think")
-	baseOpts.SystemPrompt = viper.GetString("system")
+
+	systemVal := strings.TrimSpace(viper.GetString("system"))
+	if systemVal != "" {
+		resolvedSystem, fromFile, err := resolveSystemPrompt(systemVal)
+		switch {
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "warning: failed to resolve system prompt (%v); using default concise prompt\n", err)
+			baseOpts.SystemPrompt = ""
+		case !fromFile && looksLikeSystemPromptPath(systemVal):
+			baseOpts.SystemPrompt = ""
+		default:
+			baseOpts.SystemPrompt = resolvedSystem
+		}
+	}
+
 	searchEnabled := viper.GetBool("search")
 	return client, baseOpts, searchEnabled
 }
 
-// shouldExitREPL checks if the REPL should exit due to context cancellation.
-func shouldExitREPL(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		fmt.Println()
-		fmt.Println(theme.Dim.Render("Goodbye!"))
-		fmt.Println()
-		return true
-	default:
-		return false
-	}
-}
-
-// readUserInput reads user input from the scanner.
-func readUserInput(scanner *bufio.Scanner) string {
-	fmt.Print(theme.Prompt.Render("you> "))
-	if !scanner.Scan() {
-		return ""
-	}
-	return strings.TrimSpace(scanner.Text())
-}
-
 // handleSpecialCommands handles built-in commands like exit, help, clear, etc.
-func handleSpecialCommands(input string, conversationContext *[]app.Message, sessionHistory *[]string) (bool, error) {
+// Returns (handled, shouldExit).
+func handleSpecialCommands(input string, sess *chatSession) (handled bool, shouldExit bool) {
 	switch strings.ToLower(input) {
 	case "exit", "quit", "/exit", "/quit":
-		fmt.Println()
-		fmt.Println(theme.Dim.Render("Goodbye!"))
-		fmt.Println()
-		return true, nil
+		return true, true
 
 	case "help", "/help", "?":
 		printStyledHelp()
-		return true, nil
+		return true, false
 
 	case "history", "/history":
-		printSessionHistoryStyled(*sessionHistory)
-		return true, nil
+		printSessionHistoryStyled(sess.history)
+		return true, false
 
 	case "clear", "/clear":
-		*conversationContext = nil
-		*sessionHistory = nil
+		sess.context = nil
+		sess.history = nil
 		fmt.Print("\033[2J\033[H") // Clear screen
 		printWelcomeBanner("", false)
-		return true, nil
+		return true, false
 
 	case "context", "/context":
-		printContextStyled(*conversationContext)
-		return true, nil
+		printContextStyled(sess.context)
+		return true, false
 	}
-	return false, nil
+	return false, false
 }
 
 // isSearchCommand checks if the input is a search command.
@@ -263,7 +298,7 @@ func isWebCommand(input string) bool {
 }
 
 // handleSearchCommand processes search commands and displays results.
-func handleSearchCommand(ctx context.Context, client *app.Client, input string, conversationContext *[]app.Message, sessionHistory *[]string) error {
+func handleSearchCommand(ctx context.Context, sess *chatSession, input string) error {
 	query := strings.TrimSpace(input[len("/search "):])
 	if strings.HasPrefix(input, "search ") {
 		query = strings.TrimSpace(input[len("search "):])
@@ -280,7 +315,7 @@ func handleSearchCommand(ctx context.Context, client *app.Client, input string, 
 	go animateThinking(nil, &stop)
 
 	start := time.Now()
-	resp, err := client.SearchWeb(ctx, query, opts)
+	resp, err := sess.client.SearchWeb(ctx, query, opts)
 	stop.Store(true)
 	time.Sleep(100 * time.Millisecond) // Let spinner clear
 
@@ -313,20 +348,20 @@ func handleSearchCommand(ctx context.Context, client *app.Client, input string, 
 
 	// Add formatted search results to conversation
 	searchFormatted := app.FormatSearchResultsForChat(resp.SearchResult, query)
-	*conversationContext = append(*conversationContext,
+	sess.context = append(sess.context,
 		app.Message{Role: "user", Content: fmt.Sprintf("Search: %s", query)},
 		app.Message{Role: "assistant", Content: searchFormatted},
 	)
-	if len(*conversationContext) > 20 {
-		*conversationContext = (*conversationContext)[2:]
+	if len(sess.context) > 20 {
+		sess.context = sess.context[2:]
 	}
 
-	*sessionHistory = append(*sessionHistory, input)
+	sess.history = append(sess.history, input)
 	return nil
 }
 
 // handleWebCommand processes web commands and displays fetched content.
-func handleWebCommand(ctx context.Context, client *app.Client, input string, conversationContext *[]app.Message, sessionHistory *[]string) error {
+func handleWebCommand(ctx context.Context, sess *chatSession, input string) error {
 	url := strings.TrimSpace(input[len("/web "):])
 	if strings.HasPrefix(input, "web ") {
 		url = strings.TrimSpace(input[len("web "):])
@@ -335,7 +370,7 @@ func handleWebCommand(ctx context.Context, client *app.Client, input string, con
 	if url == "" {
 		fmt.Println(theme.ErrorText.Render("  Usage: /web <url>"))
 		fmt.Println()
-		return fmt.Errorf("usage: /web <url>")
+		return errors.New("usage: /web <url>")
 	}
 
 	// Fetch web content with spinner
@@ -348,7 +383,7 @@ func handleWebCommand(ctx context.Context, client *app.Client, input string, con
 	webOpts := &app.WebReaderOptions{
 		ReturnFormat: "markdown",
 	}
-	resp, err := client.FetchWebContent(ctx, url, webOpts)
+	resp, err := sess.client.FetchWebContent(ctx, url, webOpts)
 	stop.Store(true)
 	time.Sleep(100 * time.Millisecond) // Let spinner clear
 
@@ -373,35 +408,35 @@ func handleWebCommand(ctx context.Context, client *app.Client, input string, con
 	// Add to conversation context
 	formattedContent := app.FormatWebContent(url, resp.ReaderResult.Title, resp.ReaderResult.Content)
 	userMsg := fmt.Sprintf("Fetched web page: %s", url)
-	*conversationContext = append(*conversationContext,
+	sess.context = append(sess.context,
 		app.Message{Role: "user", Content: userMsg},
 		app.Message{Role: "assistant", Content: formattedContent},
 	)
-	if len(*conversationContext) > 20 {
-		*conversationContext = (*conversationContext)[2:]
+	if len(sess.context) > 20 {
+		sess.context = sess.context[2:]
 	}
 
-	*sessionHistory = append(*sessionHistory, input)
+	sess.history = append(sess.history, input)
 	return nil
 }
 
 // handleRegularChat processes regular chat messages.
-func handleRegularChat(ctx context.Context, client *app.Client, baseOpts app.ChatOptions, input string, searchEnabled bool, conversationContext *[]app.Message, sessionHistory *[]string) error {
+func handleRegularChat(ctx context.Context, sess *chatSession, baseOpts app.ChatOptions, input string) error {
 	// Add to session history
-	*sessionHistory = append(*sessionHistory, input)
+	sess.history = append(sess.history, input)
 
 	// Build options with current context
 	opts := baseOpts
-	opts.Context = *conversationContext
+	opts.Context = sess.context
 
 	// Only include file on first message or if explicitly requested
-	if len(*conversationContext) > 0 {
+	if len(sess.context) > 0 {
 		opts.FilePath = ""
 	}
 
 	// If search is not enabled, proceed with regular chat
-	if !searchEnabled {
-		return sendChatMessage(ctx, client, input, opts, conversationContext)
+	if !sess.searchEnabled {
+		return sendChatMessage(ctx, sess, input, opts)
 	}
 
 	// Run search and chat in parallel using errgroup
@@ -419,8 +454,9 @@ func handleRegularChat(ctx context.Context, client *app.Client, baseOpts app.Cha
 		searchOpts := app.SearchOptions{
 			Count:         5,
 			RecencyFilter: "oneWeek",
+			Language:      viper.GetString("web_search.language"),
 		}
-		results, err := client.SearchWeb(ctx, input, searchOpts)
+		results, err := sess.client.SearchWeb(ctx, input, searchOpts)
 		searchChan <- searchResult{results: results, err: err}
 		return nil
 	})
@@ -446,16 +482,16 @@ func handleRegularChat(ctx context.Context, client *app.Client, baseOpts app.Cha
 	}
 
 	// Send chat message
-	return sendChatMessage(ctx, client, messageToSend, opts, conversationContext)
+	return sendChatMessage(ctx, sess, messageToSend, opts)
 }
 
 // sendChatMessage handles the actual chat API call with spinner animation
-func sendChatMessage(ctx context.Context, client *app.Client, messageToSend string, opts app.ChatOptions, conversationContext *[]app.Message) error {
+func sendChatMessage(ctx context.Context, sess *chatSession, messageToSend string, opts app.ChatOptions) error {
 	// Send to API with spinner
 	var stop atomic.Bool
 	go animateThinking(nil, &stop)
 
-	response, err := client.Chat(ctx, messageToSend, opts)
+	response, err := sess.client.Chat(ctx, messageToSend, opts)
 	stop.Store(true)
 	time.Sleep(100 * time.Millisecond) // Let spinner clear
 
@@ -464,12 +500,12 @@ func sendChatMessage(ctx context.Context, client *app.Client, messageToSend stri
 	}
 
 	// Update conversation context (keep last 10 exchanges = 20 messages)
-	*conversationContext = append(*conversationContext,
+	sess.context = append(sess.context,
 		app.Message{Role: "user", Content: messageToSend},
 		app.Message{Role: "assistant", Content: response},
 	)
-	if len(*conversationContext) > 20 {
-		*conversationContext = (*conversationContext)[2:]
+	if len(sess.context) > 20 {
+		sess.context = sess.context[2:]
 	}
 
 	// Display response with styling
@@ -485,6 +521,7 @@ func parseSearchCommand(input string) (query string, opts app.SearchOptions) {
 	opts = app.SearchOptions{
 		Count:         10,
 		RecencyFilter: "noLimit",
+		Language:      viper.GetString("web_search.language"),
 	}
 
 	// Parse flags
@@ -506,6 +543,8 @@ func parseSearchCommand(input string) (query string, opts app.SearchOptions) {
 			opts.RecencyFilter = value
 		case "d", "domain":
 			opts.DomainFilter = value
+		case "l", "lang":
+			opts.Language = value
 		}
 
 		// Remove this flag from query

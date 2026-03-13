@@ -41,29 +41,35 @@ type MockLogger struct {
 }
 
 func (m *MockLogger) Info(format string, args ...any) {
-	msg := format
+	var sb strings.Builder
+	sb.WriteString(format)
 	for _, arg := range args {
-		msg += " " + stringify(arg)
+		sb.WriteString(" ")
+		sb.WriteString(stringify(arg))
 	}
-	m.logs = append(m.logs, "INFO: "+msg)
+	m.logs = append(m.logs, "INFO: "+sb.String())
 	m.Called(format, args)
 }
 
 func (m *MockLogger) Warn(format string, args ...any) {
-	msg := format
+	var sb strings.Builder
+	sb.WriteString(format)
 	for _, arg := range args {
-		msg += " " + stringify(arg)
+		sb.WriteString(" ")
+		sb.WriteString(stringify(arg))
 	}
-	m.logs = append(m.logs, "WARN: "+msg)
+	m.logs = append(m.logs, "WARN: "+sb.String())
 	m.Called(format, args)
 }
 
 func (m *MockLogger) Error(format string, args ...any) {
-	msg := format
+	var sb strings.Builder
+	sb.WriteString(format)
 	for _, arg := range args {
-		msg += " " + stringify(arg)
+		sb.WriteString(" ")
+		sb.WriteString(stringify(arg))
 	}
-	m.logs = append(m.logs, "ERROR: "+msg)
+	m.logs = append(m.logs, "ERROR: "+sb.String())
 	m.Called(format, args)
 }
 

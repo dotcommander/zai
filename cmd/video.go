@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -49,7 +50,7 @@ Examples:
 	},
 }
 
-func init() {
+func registerVideoCmd() {
 	// Main video command
 	videoCmd.Flags().StringVarP(&videoQuality, "quality", "q", "speed", "Quality mode: speed (fast) or quality (higher quality)")
 	videoCmd.Flags().StringVarP(&videoSize, "size", "s", "1920x1080", "Video size: 1280x720, 1024x1024, 1920x1080, 3840x2160, etc.")
@@ -102,7 +103,7 @@ func runVideoGeneration(prompt string) error {
 	}
 
 	// Display and handle the result
-	return displayVideoResult(result, prompt)
+	return displayVideoResult(ctx, result)
 }
 
 // pollForResult polls for video generation completion with spinner.
@@ -116,7 +117,7 @@ func pollForResult(ctx context.Context, client *app.Client, taskID string) (*app
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("video generation timeout")
+			return nil, errors.New("video generation timeout")
 		case <-ticker.C:
 			elapsed := time.Since(startTime)
 			result, err := client.RetrieveVideoResult(ctx, taskID)
@@ -133,7 +134,7 @@ func pollForResult(ctx context.Context, client *app.Client, taskID string) (*app
 				fmt.Printf("\r%s ✅ Video generation complete! (%.1fs elapsed)\n", spinner, elapsed.Seconds())
 				return result, nil
 			case "FAIL":
-				return nil, fmt.Errorf("video generation failed on server")
+				return nil, errors.New("video generation failed on server")
 			case "PROCESSING":
 				fmt.Printf("\r%s ⏳ Processing... (%.1fs elapsed)   ", spinner, elapsed.Seconds())
 			}
@@ -142,9 +143,9 @@ func pollForResult(ctx context.Context, client *app.Client, taskID string) (*app
 }
 
 // displayVideoResult handles displaying, saving, and opening the generated video.
-func displayVideoResult(result *app.VideoResultResponse, prompt string) error {
+func displayVideoResult(ctx context.Context, result *app.VideoResultResponse) error {
 	if len(result.VideoResult) == 0 {
-		return fmt.Errorf("no video in result")
+		return errors.New("no video in result")
 	}
 
 	videoData := result.VideoResult[0]
@@ -166,7 +167,7 @@ func displayVideoResult(result *app.VideoResultResponse, prompt string) error {
 	// Save video to disk
 	fmt.Printf("💾 Downloading to: %s\n", outputPath)
 	downloader := app.NewMediaDownloader(nil)
-	downloadResult := downloader.Download(videoData.URL, outputPath)
+	downloadResult := downloader.Download(ctx, videoData.URL, outputPath)
 	if downloadResult.Error != nil {
 		return fmt.Errorf("failed to save video: %w", downloadResult.Error)
 	}
@@ -176,7 +177,7 @@ func displayVideoResult(result *app.VideoResultResponse, prompt string) error {
 
 	// Open in player
 	if videoShow {
-		if err := openVideoPlayer(outputPath); err != nil {
+		if err := openVideoPlayer(ctx, outputPath); err != nil {
 			fmt.Printf("⚠️  Warning: Failed to open video player: %v\n", err)
 		}
 	}
@@ -185,9 +186,9 @@ func displayVideoResult(result *app.VideoResultResponse, prompt string) error {
 }
 
 // openVideoPlayer opens video file with default player.
-func openVideoPlayer(filePath string) error {
+func openVideoPlayer(ctx context.Context, filePath string) error {
 	fmt.Printf("🎬 Opening video player...\n")
-	return app.OpenWith(filePath)
+	return app.OpenWith(ctx, filePath)
 }
 
 // buildVideoOptions creates video options from command line flags and config.

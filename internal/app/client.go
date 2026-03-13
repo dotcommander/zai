@@ -22,7 +22,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dotcommander/zai/internal/app/utils"
+	"github.com/dotcommander/zai/internal/app/fileutil"
 	"github.com/dotcommander/zai/internal/config"
 )
 
@@ -62,10 +62,14 @@ func DefaultChatOptions() ChatOptions {
 	}
 }
 
-// Helper functions for creating pointers to literals (exported for use in cmd package)
+// Float64Ptr returns a pointer to the given float64 value.
 func Float64Ptr(v float64) *float64 { return &v }
-func IntPtr(v int) *int             { return &v }
-func BoolPtr(v bool) *bool          { return &v }
+
+// IntPtr returns a pointer to the given int value.
+func IntPtr(v int) *int { return &v }
+
+// BoolPtr returns a pointer to the given bool value.
+func BoolPtr(v bool) *bool { return &v }
 
 // NewLogger creates a slog.Logger for the application.
 // If verbose is true, logs at Debug level; otherwise Info level.
@@ -150,12 +154,16 @@ type HTTPDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// CircuitBreaker states
+// CircuitBreakerState represents the state of the circuit breaker.
 type CircuitBreakerState int
 
+// Circuit breaker state constants.
 const (
+	// Closed is the normal operating state; requests pass through.
 	Closed CircuitBreakerState = iota
+	// Open is the tripped state; requests are rejected.
 	Open
+	// HalfOpen is the recovery state; a limited number of requests are allowed.
 	HalfOpen
 )
 
@@ -330,12 +338,14 @@ func (c *RateLimitedClient) Do(req *http.Request) (*http.Response, error) {
 }
 
 // FileReader interface for file operations (DIP compliance, enables testing).
-// Deprecated: Use utils.FileReader instead. Kept for backward compatibility.
-type FileReader = utils.FileReader
+//
+// Deprecated: Use fileutil.FileReader instead. Kept for backward compatibility.
+type FileReader = fileutil.FileReader
 
 // OSFileReader implements FileReader using os.ReadFile.
-// Deprecated: Use utils.OSFileReader instead. Kept for backward compatibility.
-type OSFileReader = utils.OSFileReader
+//
+// Deprecated: Use fileutil.OSFileReader instead. Kept for backward compatibility.
+type OSFileReader = fileutil.OSFileReader
 
 // Client implements ChatClient with Z.AI API.
 type Client struct {
@@ -430,7 +440,7 @@ func (c *Client) getCircuitBreaker(endpoint string) *CircuitBreaker {
 // Returns an error with helpful message if not set.
 func (c *Client) requireAPIKey() error {
 	if c.config.APIKey == "" {
-		return fmt.Errorf("API key is not configured. Set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
+		return errors.New("API key is not configured. Set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
 	}
 	return nil
 }
@@ -495,11 +505,10 @@ func (c *Client) enrichWithURLContent(ctx context.Context, prompt, content strin
 
 	// Fetch all URLs concurrently
 	for i, url := range urls {
-		i, url := i, url // capture loop variables
 		g.Go(func() error {
 			webResp, err := c.FetchWebContent(ctx, url, webOpts)
 			if err != nil {
-				c.logger.Warn("failed to fetch web content", "url", url, "error", err)
+				c.logger.WarnContext(ctx, "failed to fetch web content", "url", url, "error", err)
 				return nil // Don't fail entire group for single URL error
 			}
 			results[i].url = url
@@ -511,15 +520,19 @@ func (c *Client) enrichWithURLContent(ctx context.Context, prompt, content strin
 
 	// Wait for all fetches to complete
 	if err := g.Wait(); err != nil {
-		c.logger.Warn("error fetching web content", "error", err)
+		c.logger.WarnContext(ctx, "error fetching web content", "error", err)
 	}
 
 	// Append results in original order
+	var sb strings.Builder
+	sb.WriteString(content)
 	for _, r := range results {
 		if r.url != "" { // Only append successful fetches
-			content += "\n\n" + FormatWebContent(r.url, r.title, r.body)
+			sb.WriteString("\n\n")
+			sb.WriteString(FormatWebContent(r.url, r.title, r.body))
 		}
 	}
+	content = sb.String()
 
 	return content
 }
@@ -716,6 +729,57 @@ func setJSONHeaders(req *http.Request, apiKey string) {
 	req.Header.Set("Accept-Language", "en-US,en")
 }
 
+// isLikelyLanguage checks if text is likely written in the target language.
+// Uses character-class heuristics: Latin scripts for "en"/"es"/"fr"/"de"/"pt"/"it",
+// CJK detection for "zh"/"ja"/"ko", Cyrillic for "ru", Arabic for "ar".
+func isLikelyLanguage(text, lang string) bool {
+	if text == "" || lang == "" {
+		return true
+	}
+
+	runes := []rune(text)
+	if len(runes) == 0 {
+		return true
+	}
+
+	// Count character classes
+	var latin, cjk, cyrillic, arabic int
+	for _, r := range runes {
+		switch {
+		case (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'):
+			latin++
+		case r >= 0x4E00 && r <= 0x9FFF || r >= 0x3400 && r <= 0x4DBF || r >= 0x3040 && r <= 0x30FF || r >= 0xAC00 && r <= 0xD7AF:
+			cjk++
+		case r >= 0x0400 && r <= 0x04FF:
+			cyrillic++
+		case r >= 0x0600 && r <= 0x06FF:
+			arabic++
+		}
+	}
+
+	total := latin + cjk + cyrillic + arabic
+	if total == 0 {
+		return true // all punctuation/numbers — can't determine
+	}
+
+	switch lang {
+	case "en", "es", "fr", "de", "pt", "it":
+		// Reject if any CJK characters present — Latin-language content shouldn't contain them
+		if cjk > 0 {
+			return false
+		}
+		return float64(latin)/float64(total) > 0.5
+	case "zh", "ja", "ko":
+		return float64(cjk)/float64(total) > 0.3
+	case "ru":
+		return float64(cyrillic)/float64(total) > 0.3
+	case "ar":
+		return float64(arabic)/float64(total) > 0.3
+	default:
+		return true // unknown language, don't filter
+	}
+}
+
 // extractEndpointName extracts a standardized name from endpoint path.
 func extractEndpointName(endpoint string) string {
 	switch {
@@ -773,7 +837,7 @@ func (c *Client) executeJSONRequestInternal(ctx context.Context, endpoint string
 		return nil, err
 	}
 
-	c.logger.Debug("sending request", "url", req.URL)
+	c.logger.DebugContext(ctx, "sending request", "url", req.URL)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -817,7 +881,7 @@ func (c *Client) executeGetRequestInternal(ctx context.Context, endpoint string)
 		return nil, err
 	}
 
-	c.logger.Debug("sending request", "url", req.URL)
+	c.logger.DebugContext(ctx, "sending request", "url", req.URL)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
@@ -893,7 +957,7 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
 	req.Header.Set("Accept-Language", "en-US,en")
 
-	c.logger.Debug("sending request", "url", url)
+	c.logger.DebugContext(ctx, "sending request", "url", url)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -916,10 +980,10 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return "", Usage{}, fmt.Errorf("no choices in response")
+		return "", Usage{}, errors.New("no choices in response")
 	}
 
-	c.logger.Debug("usage",
+	c.logger.DebugContext(ctx, "usage",
 		"total_tokens", chatResp.Usage.TotalTokens,
 		"prompt_tokens", chatResp.Usage.PromptTokens,
 		"completion_tokens", chatResp.Usage.CompletionTokens)
@@ -958,7 +1022,7 @@ func (c *Client) doRequestWithRetry(ctx context.Context, messages []Message, opt
 		// On retry (not first attempt), log and wait
 		if attempt > 1 {
 			backoff := calculateBackoff(attempt, initialBackoff, maxBackoff)
-			c.logger.Debug("retrying request",
+			c.logger.DebugContext(ctx, "retrying request",
 				"attempt", attempt,
 				"max_attempts", maxAttempts,
 				"backoff", backoff,
@@ -1049,10 +1113,10 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOpt
 	}
 
 	if len(imageResp.Data) == 0 {
-		return nil, fmt.Errorf("no images in response")
+		return nil, errors.New("no images in response")
 	}
 
-	c.logger.Debug("generated image",
+	c.logger.DebugContext(ctx, "generated image",
 		"url", imageResp.Data[0].URL,
 		"width", imageResp.Data[0].Width,
 		"height", imageResp.Data[0].Height)
@@ -1080,7 +1144,7 @@ func (c *Client) FetchWebContent(ctx context.Context, url string, opts *WebReade
 		return nil, err
 	}
 
-	c.logger.Debug("fetched web content",
+	c.logger.DebugContext(ctx, "fetched web content",
 		"url", webResp.ReaderResult.URL,
 		"title", webResp.ReaderResult.Title)
 
@@ -1090,7 +1154,7 @@ func (c *Client) FetchWebContent(ctx context.Context, url string, opts *WebReade
 // validateWebContentURL validates the URL parameter for web content fetching.
 func (c *Client) validateWebContentURL(url string) error {
 	if url == "" {
-		return fmt.Errorf("URL is required")
+		return errors.New("URL is required")
 	}
 	return nil
 }
@@ -1178,19 +1242,25 @@ func validateImageOptions(opts ImageOptions) error {
 }
 
 // SearchWeb performs a web search using Z.AI's search API.
-func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions) (*WebSearchResponse, error) { //nolint:gocognit,gocyclo
+func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions) (*WebSearchResponse, error) { //nolint:gocognit,gocyclo,revive // cognitive complexity is inherent to search validation
 	if err := c.requireAPIKey(); err != nil {
 		return nil, err
 	}
 
 	// Validate query
 	if query == "" {
-		return nil, fmt.Errorf("search query is required")
+		return nil, errors.New("search query is required")
+	}
+
+	// Over-fetch when filtering by non-Chinese language
+	requestedCount := opts.Count
+	if opts.Language != "" && opts.Language != "zh" {
+		opts.Count = min(opts.Count*3, 50)
 	}
 
 	// Validate count
 	if opts.Count < 1 || opts.Count > 50 {
-		return nil, fmt.Errorf("count must be between 1 and 50")
+		return nil, errors.New("count must be between 1 and 50")
 	}
 
 	// Validate recency filter
@@ -1245,13 +1315,29 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 		return nil, fmt.Errorf("failed to unmarshal search response: %w", err)
 	}
 
-	c.logger.Debug("search complete", "results", len(searchResp.SearchResult), "query", query)
+	// Filter results by language if specified
+	if opts.Language != "" && opts.Language != "zh" {
+		filtered := make([]SearchResult, 0, len(searchResp.SearchResult))
+		for _, r := range searchResp.SearchResult {
+			// Check both title and content for language match
+			sample := r.Title + " " + r.Content
+			if isLikelyLanguage(sample, opts.Language) {
+				filtered = append(filtered, r)
+			}
+		}
+		if requestedCount > 0 && len(filtered) > requestedCount {
+			filtered = filtered[:requestedCount]
+		}
+		searchResp.SearchResult = filtered
+	}
+
+	c.logger.DebugContext(ctx, "search complete", "results", len(searchResp.SearchResult), "query", query)
 
 	// Save to history (non-blocking, log errors)
 	if c.history != nil {
 		entry := NewSearchHistoryEntry(time.Now(), query, &searchResp)
 		if err := c.history.Save(entry); err != nil {
-			c.logger.Warn("failed to save search to history", "error", err)
+			c.logger.WarnContext(ctx, "failed to save search to history", "error", err)
 		}
 	}
 
@@ -1272,7 +1358,7 @@ func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, 
 
 	// Validate image input
 	if imageBase64 == "" {
-		return "", fmt.Errorf("image data is required")
+		return "", errors.New("image data is required")
 	}
 
 	// Build vision model
@@ -1336,10 +1422,10 @@ func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, 
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("no choices in vision response")
+		return "", errors.New("no choices in vision response")
 	}
 
-	c.logger.Debug("vision complete",
+	c.logger.DebugContext(ctx, "vision complete",
 		"total_tokens", chatResp.Usage.TotalTokens,
 		"prompt_tokens", chatResp.Usage.PromptTokens,
 		"completion_tokens", chatResp.Usage.CompletionTokens)
@@ -1355,7 +1441,7 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 
 	// Validate audio file
 	if audioPath == "" {
-		return nil, fmt.Errorf("audio file path is required")
+		return nil, errors.New("audio file path is required")
 	}
 
 	// Read audio file using injected FileReader
@@ -1384,8 +1470,8 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	if err != nil {
 		return nil, fmt.Errorf("failed to create form file: %w", err)
 	}
-	if _, err := io.Copy(part, bytes.NewReader(data)); err != nil {
-		return nil, fmt.Errorf("failed to copy file data: %w", err)
+	if _, copyErr := io.Copy(part, bytes.NewReader(data)); copyErr != nil {
+		return nil, fmt.Errorf("failed to copy file data: %w", copyErr)
 	}
 
 	// Add model
@@ -1405,7 +1491,8 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 		writer.WriteField("request_id", opts.RequestID) //nolint:errcheck // multipart field write
 	}
 	if len(opts.Hotwords) > 0 {
-		hotwordsJSON, err := json.Marshal(opts.Hotwords)
+		var hotwordsJSON []byte
+		hotwordsJSON, err = json.Marshal(opts.Hotwords)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal hotwords: %w", err)
 		}
@@ -1425,7 +1512,7 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
 	req.Header.Set("Accept-Language", "en-US,en")
 
-	c.logger.Debug("sending audio transcription request", "url", url)
+	c.logger.DebugContext(ctx, "sending audio transcription request", "url", url)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -1447,7 +1534,7 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
-	c.logger.Debug("transcription complete", "chars", len(transcriptionResp.Text), "model", transcriptionResp.Model)
+	c.logger.DebugContext(ctx, "transcription complete", "chars", len(transcriptionResp.Text), "model", transcriptionResp.Model)
 
 	return &transcriptionResp, nil
 }
@@ -1506,7 +1593,7 @@ func (c *Client) GenerateVideo(ctx context.Context, prompt string, opts VideoOpt
 		return nil, fmt.Errorf("failed to unmarshal video response: %w", err)
 	}
 
-	c.logger.Debug("video generation task created", "id", videoResp.ID, "status", videoResp.TaskStatus)
+	c.logger.DebugContext(ctx, "video generation task created", "id", videoResp.ID, "status", videoResp.TaskStatus)
 
 	return &videoResp, nil
 }
@@ -1519,7 +1606,7 @@ func (c *Client) RetrieveVideoResult(ctx context.Context, taskID string) (*Video
 
 	// Validate task ID
 	if taskID == "" {
-		return nil, fmt.Errorf("task ID is required")
+		return nil, errors.New("task ID is required")
 	}
 
 	var resultResp VideoResultResponse
@@ -1532,7 +1619,7 @@ func (c *Client) RetrieveVideoResult(ctx context.Context, taskID string) (*Video
 		return nil, fmt.Errorf("failed to unmarshal video result response: %w", err)
 	}
 
-	c.logger.Debug("video result retrieved", "id", taskID, "status", resultResp.TaskStatus)
+	c.logger.DebugContext(ctx, "video result retrieved", "id", taskID, "status", resultResp.TaskStatus)
 
 	return &resultResp, nil
 }
@@ -1570,7 +1657,7 @@ func validateVideoOptions(opts VideoOptions) error {
 
 	// Validate image URLs (max 2 for first/last frame mode)
 	if len(opts.ImageURLs) > 2 {
-		return fmt.Errorf("too many image URLs (max 2 for first/last frame mode)")
+		return errors.New("too many image URLs (max 2 for first/last frame mode)")
 	}
 
 	return nil

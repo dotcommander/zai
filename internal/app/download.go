@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,12 +38,12 @@ type DownloadResult struct {
 }
 
 // Download fetches a URL and saves to file with directory creation.
-func (d *MediaDownloader) Download(url, filePath string) *DownloadResult {
+func (d *MediaDownloader) Download(ctx context.Context, url, filePath string) *DownloadResult {
 	if err := ensureDir(filePath); err != nil {
 		return &DownloadResult{FilePath: filePath, Error: err}
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return &DownloadResult{FilePath: filePath, Error: fmt.Errorf("create request: %w", err)}
 	}
@@ -69,7 +70,7 @@ func (d *MediaDownloader) Download(url, filePath string) *DownloadResult {
 func ensureDir(filePath string) error {
 	dir := filepath.Dir(filePath)
 	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0750); err != nil {
 			return fmt.Errorf("create directory: %w", err)
 		}
 	}

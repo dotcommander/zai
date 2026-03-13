@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -333,12 +333,12 @@ func TestIsRetryableError(t *testing.T) {
 	}{
 		{"nil error", nil, false},
 		{"timeout error", &testTimeoutError{true}, true},
-		{"connection refused", fmt.Errorf("connection refused"), true},
-		{"503 error", fmt.Errorf("API error: 503"), true},
-		{"502 error", fmt.Errorf("API error: 502"), true},
-		{"504 error", fmt.Errorf("API error: 504"), true},
-		{"400 error", fmt.Errorf("API error: 400"), false},
-		{"500 error", fmt.Errorf("API error: 500"), false},
+		{"connection refused", errors.New("connection refused"), true},
+		{"503 error", errors.New("API error: 503"), true},
+		{"502 error", errors.New("API error: 502"), true},
+		{"504 error", errors.New("API error: 504"), true},
+		{"400 error", errors.New("API error: 400"), false},
+		{"500 error", errors.New("API error: 500"), false},
 	}
 
 	for _, tt := range tests {

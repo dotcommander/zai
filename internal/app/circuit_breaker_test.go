@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -58,7 +59,7 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 	// Force failures to open the circuit
 	for i := 0; i < 3; i++ {
 		err := cb.Execute(func() error {
-			return fmt.Errorf("API error")
+			return errors.New("API error")
 		})
 		if err == nil {
 			t.Errorf("Expected failure, got success")
@@ -72,7 +73,7 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 
 	// Next call should fail immediately with circuit breaker error
 	err := cb.Execute(func() error {
-		return fmt.Errorf("API error")
+		return errors.New("API error")
 	})
 	if err == nil {
 		t.Error("Expected circuit breaker error, got success")

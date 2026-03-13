@@ -77,7 +77,7 @@ func (fsc *FileSearchCache) Set(query string, opts SearchOptions, results []Sear
 	defer fsc.mutex.Unlock()
 
 	// Ensure cache directory exists
-	if err := os.MkdirAll(fsc.dir, 0755); err != nil {
+	if err := os.MkdirAll(fsc.dir, 0750); err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
@@ -193,6 +193,9 @@ func generateCacheKey(query string, opts SearchOptions) string {
 	}
 	if opts.Count > 0 {
 		h.Write([]byte("count:" + strconv.Itoa(opts.Count)))
+	}
+	if opts.Language != "" {
+		h.Write([]byte("lang:" + opts.Language))
 	}
 
 	return hex.EncodeToString(h.Sum(nil))

@@ -3,13 +3,16 @@ package cmd
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -66,7 +69,7 @@ Maximum duration: 30 seconds per chunk`,
 	RunE: runAudioTranscription,
 }
 
-func init() {
+func registerAudioCmd() {
 	rootCmd.AddCommand(audioCmd)
 
 	audioCmd.Flags().StringVarP(&audioFile, "file", "f", "", "Audio file path")
@@ -112,7 +115,7 @@ func sanitizePath(path string) (string, error) {
 // checkFFmpeg verifies ffmpeg is installed before audio processing.
 func checkFFmpeg() error {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return fmt.Errorf("ffmpeg required for audio processing\n  Install: brew install ffmpeg (macOS) | apt install ffmpeg (Linux) | choco install ffmpeg (Windows)")
+		return errors.New("ffmpeg required for audio processing\n  Install: brew install ffmpeg (macOS) | apt install ffmpeg (Linux) | choco install ffmpeg (Windows)")
 	}
 	return nil
 }
@@ -127,7 +130,7 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error { //nolint:g
 	defer tempMgr.Cleanup()
 
 	// Determine audio source and get audio path
-	audioPath, err := determineAudioSource()
+	audioPath, err := determineAudioSource(ctx)
 	if err != nil {
 		return err
 	}
@@ -140,7 +143,7 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error { //nolint:g
 	}
 
 	// Preprocess audio if needed
-	audioPath, err = preprocessAudioIfNeeded(audioPath, tempMgr)
+	audioPath, err = preprocessAudioIfNeeded(ctx, audioPath, tempMgr)
 	if err != nil {
 		return err
 	}
@@ -151,15 +154,15 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error { //nolint:g
 	}
 
 	// Perform regular transcription for normal-sized files
-	return performRegularTranscription(ctx, audioPath, originalSource)
+	return performRegularTranscription(ctx, audioPath)
 }
 
 // determineAudioSource determines the audio source (YouTube, file, or stdin) and returns the path.
-func determineAudioSource() (string, error) {
+func determineAudioSource(ctx context.Context) (string, error) {
 	switch {
 	case audioVideo != "":
 		// YouTube source
-		ytPath, err := downloadYouTubeAudio(audioVideo)
+		ytPath, err := downloadYouTubeAudio(ctx, audioVideo)
 		if err != nil {
 			return "", fmt.Errorf("YouTube download failed: %w", err)
 		}
@@ -173,7 +176,7 @@ func determineAudioSource() (string, error) {
 		}
 		return stdinPath, nil
 	default:
-		return "", fmt.Errorf("audio file required: use -f <file> or --video <youtube_url>, or pipe via stdin")
+		return "", errors.New("audio file required: use -f <file> or --video <youtube_url>, or pipe via stdin")
 	}
 }
 
@@ -189,7 +192,7 @@ func validateAndGetAudioPath(audioPath string) (string, error) {
 }
 
 // preprocessAudioIfNeeded preprocesses audio if needed and returns the final audio path.
-func preprocessAudioIfNeeded(audioPath string, tempMgr *TempFileManager) (string, error) {
+func preprocessAudioIfNeeded(ctx context.Context, audioPath string, tempMgr *TempFileManager) (string, error) {
 	// Check ffmpeg before any processing that requires it
 	needsFFmpeg := audioPreprocess || audioVAD
 	if needsFFmpeg {
@@ -200,7 +203,7 @@ func preprocessAudioIfNeeded(audioPath string, tempMgr *TempFileManager) (string
 
 	// Preprocessing: convert to optimal format if needed
 	if audioPreprocess || audioVAD {
-		processedPath, err := preprocessAudio(audioPath, audioVAD)
+		processedPath, err := preprocessAudio(ctx, audioPath, audioVAD)
 		if err != nil {
 			return "", fmt.Errorf("audio preprocessing failed: %w", err)
 		}
@@ -236,7 +239,7 @@ func handleLargeAudioFile(ctx context.Context, audioPath, originalSource string,
 		return fmt.Errorf("failed to access audio file: %w", err)
 	}
 	fmt.Fprintf(os.Stderr, "File too large (%d MB), splitting into chunks...\n", info.Size()/1024/1024)
-	chunks, err := splitAudio(audioPath, 25) // 25-second chunks (API limit 30s)
+	chunks, err := splitAudio(ctx, audioPath, 25) // 25-second chunks (API limit 30s)
 	if err != nil {
 		return fmt.Errorf("failed to chunk audio: %w", err)
 	}
@@ -246,11 +249,11 @@ func handleLargeAudioFile(ctx context.Context, audioPath, originalSource string,
 	client := newClientWithoutHistory()
 
 	// Transcribe each chunk and combine
-	return transcribeChunks(ctx, client, chunks, originalSource, audioPath)
+	return transcribeChunks(ctx, client, chunks, originalSource)
 }
 
 // performRegularTranscription performs transcription for normal-sized audio files.
-func performRegularTranscription(ctx context.Context, audioPath, originalSource string) error {
+func performRegularTranscription(ctx context.Context, audioPath string) error {
 	// Create client
 	client := newClientWithoutHistory()
 
@@ -352,7 +355,7 @@ func getCachePath(sourcePath string) (string, error) {
 	}
 
 	hash := sha256.Sum256(data)
-	hashStr := fmt.Sprintf("%x", hash[:8])
+	hashStr := hex.EncodeToString(hash[:8])
 
 	cacheDir := filepath.Join(os.Getenv("HOME"), ".cache", "zai", "audio")
 	if err := os.MkdirAll(cacheDir, 0700); err != nil {
@@ -399,7 +402,7 @@ type chunkResult struct {
 }
 
 // transcribeChunks transcribes multiple audio chunks with caching, resume, and parallel processing.
-func transcribeChunks(ctx context.Context, client *app.Client, chunks []string, cacheSourcePath, audioPath string) error { //nolint:gocognit,gocyclo // TODO: decompose into smaller functions
+func transcribeChunks(ctx context.Context, client *app.Client, chunks []string, cacheSourcePath string) error { //nolint:gocognit,gocyclo,revive // TODO: decompose into smaller functions
 	// Get cache path using original source file for consistent cache keys
 	cachePath, err := getCachePath(cacheSourcePath)
 	if err != nil {
@@ -488,15 +491,15 @@ func transcribeChunks(ctx context.Context, client *app.Client, chunks []string, 
 
 // transcribeParallel processes chunks concurrently using a worker pool.
 // Client is shared across workers for connection pooling.
-func transcribeParallel(ctx context.Context, client *app.Client, chunks []string, pendingIndices []int) <-chan chunkResult { //nolint:gocognit // TODO: decompose into smaller functions
+func transcribeParallel(ctx context.Context, client *app.Client, chunks []string, pendingIndices []int) <-chan chunkResult { //nolint:gocognit,revive // TODO: decompose into smaller functions
 	numWorkers := 5
 	results := make(chan chunkResult, len(pendingIndices))
 	jobs := make(chan int, len(pendingIndices))
 
 	var wg sync.WaitGroup
-	for w := 0; w < numWorkers; w++ {
+	for range numWorkers {
 		wg.Add(1)
-		go func(workerID int) {
+		go func() {
 			defer wg.Done()
 			opts := app.TranscriptionOptions{Model: audioModel, Prompt: audioPrompt}
 
@@ -525,7 +528,7 @@ func transcribeParallel(ctx context.Context, client *app.Client, chunks []string
 					results <- chunkResult{index: idx, text: resp.Text}
 				}
 			}
-		}(w)
+		}()
 	}
 
 	go func() {
@@ -544,7 +547,7 @@ func transcribeParallel(ctx context.Context, client *app.Client, chunks []string
 }
 
 // preprocessAudio converts audio to optimal format and optionally applies VAD.
-func preprocessAudio(inputPath string, applyVAD bool) (string, error) {
+func preprocessAudio(ctx context.Context, inputPath string, applyVAD bool) (string, error) {
 	// Sanitize input path to prevent command injection
 	sanitizedPath, err := sanitizePath(inputPath)
 	if err != nil {
@@ -577,7 +580,7 @@ func preprocessAudio(inputPath string, applyVAD bool) (string, error) {
 
 	args = append(args, outputPath)
 
-	cmd := exec.Command("ffmpeg", args...) //nolint:gosec // G204: ffmpeg binary is hardcoded, args are controlled
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...) //nolint:gosec // G204: ffmpeg binary is hardcoded, args are controlled
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("ffmpeg failed: %w (is ffmpeg installed?)", err)
 	}
@@ -586,7 +589,7 @@ func preprocessAudio(inputPath string, applyVAD bool) (string, error) {
 }
 
 // splitAudio splits an audio file into chunks using ffmpeg.
-func splitAudio(inputPath string, chunkDuration int) ([]string, error) {
+func splitAudio(ctx context.Context, inputPath string, chunkDuration int) ([]string, error) {
 	// Sanitize input path to prevent command injection
 	sanitizedPath, err := sanitizePath(inputPath)
 	if err != nil {
@@ -601,14 +604,14 @@ func splitAudio(inputPath string, chunkDuration int) ([]string, error) {
 		"-loglevel", "error",
 		"-i", sanitizedPath,
 		"-f", "segment",
-		"-segment_time", fmt.Sprintf("%d", chunkDuration),
+		"-segment_time", strconv.Itoa(chunkDuration),
 		"-c", "copy",
 		chunkPattern,
 	}
 
-	cmd := exec.Command("ffmpeg", args...) //nolint:gosec // G204: ffmpeg binary is hardcoded, args are controlled
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to split audio: %w", err)
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...) //nolint:gosec // G204: ffmpeg binary is hardcoded, args are controlled
+	if runErr := cmd.Run(); runErr != nil {
+		return nil, fmt.Errorf("failed to split audio: %w", runErr)
 	}
 
 	// Find generated chunks
@@ -619,14 +622,14 @@ func splitAudio(inputPath string, chunkDuration int) ([]string, error) {
 	}
 
 	if len(chunks) == 0 {
-		return nil, fmt.Errorf("no chunks generated")
+		return nil, errors.New("no chunks generated")
 	}
 
 	return chunks, nil
 }
 
 // downloadYouTubeAudio downloads audio from a YouTube video using yt-dlp.
-func downloadYouTubeAudio(url string) (string, error) {
+func downloadYouTubeAudio(ctx context.Context, url string) (string, error) {
 	// Check if yt-dlp is available
 	if _, err := exec.LookPath("yt-dlp"); err != nil {
 		return "", fmt.Errorf("yt-dlp not found (required for YouTube): %w", err)
@@ -643,8 +646,8 @@ func downloadYouTubeAudio(url string) (string, error) {
 		url,
 	}
 
-	cmd := exec.Command("yt-dlp", args...) //nolint:gosec // G204: yt-dlp binary is hardcoded, args are controlled
-	cmd.Stdout = os.Stderr                 // yt-dlp progress to stderr
+	cmd := exec.CommandContext(ctx, "yt-dlp", args...) //nolint:gosec // G204: yt-dlp binary is hardcoded, args are controlled
+	cmd.Stdout = os.Stderr                             // yt-dlp progress to stderr
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
@@ -655,7 +658,7 @@ func downloadYouTubeAudio(url string) (string, error) {
 	globPattern := strings.Replace(outputPath, "%(ext)s", "*", 1)
 	matches, err := filepath.Glob(globPattern)
 	if err != nil || len(matches) == 0 {
-		return "", fmt.Errorf("yt-dlp did not produce any audio file")
+		return "", errors.New("yt-dlp did not produce any audio file")
 	}
 
 	return matches[0], nil
@@ -669,7 +672,7 @@ func createTempAudioFile() (string, func(), error) {
 		return "", nil, fmt.Errorf("failed to read stdin: %w", err)
 	}
 	if len(data) == 0 {
-		return "", nil, fmt.Errorf("no audio data in stdin")
+		return "", nil, errors.New("no audio data in stdin")
 	}
 	if len(data) == AudioFileSize {
 		return "", nil, fmt.Errorf("audio data exceeds maximum size of %d bytes", AudioFileSize)

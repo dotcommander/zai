@@ -215,6 +215,7 @@ type SearchOptions struct {
 	Count         int    // Number of results (1-50)
 	DomainFilter  string // Limit to specific domain
 	RecencyFilter string // Time filter: oneDay, oneWeek, oneMonth, oneYear, noLimit
+	Language      string // Search language (e.g., "en", "zh"). Defaults to config value.
 	RequestID     string // Unique request ID
 	UserID        string // User ID for analytics
 }
@@ -223,8 +224,11 @@ type SearchOptions struct {
 type SearchOutputFormat string
 
 const (
+	// SearchOutputTable displays results in a formatted table.
 	SearchOutputTable    SearchOutputFormat = "table"
+	// SearchOutputDetailed displays results with full details.
 	SearchOutputDetailed SearchOutputFormat = "detailed"
+	// SearchOutputJSON outputs results as JSON.
 	SearchOutputJSON     SearchOutputFormat = "json"
 )
 
