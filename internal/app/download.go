@@ -47,6 +47,7 @@ func (d *MediaDownloader) Download(ctx context.Context, url, filePath string) *D
 	if err != nil {
 		return &DownloadResult{FilePath: filePath, Error: fmt.Errorf("create request: %w", err)}
 	}
+	req.Header.Set("User-Agent", "zai/1.0")
 
 	resp, err := d.httpClient.Do(req)
 	if err != nil {
