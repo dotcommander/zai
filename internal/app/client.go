@@ -1320,8 +1320,7 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 		filtered := make([]SearchResult, 0, len(searchResp.SearchResult))
 		for _, r := range searchResp.SearchResult {
 			// Check both title and content for language match
-			sample := r.Title + " " + r.Content
-			if isLikelyLanguage(sample, opts.Language) {
+			if isLikelyLanguage(r.Title, opts.Language) && isLikelyLanguage(r.Content, opts.Language) {
 				filtered = append(filtered, r)
 			}
 		}

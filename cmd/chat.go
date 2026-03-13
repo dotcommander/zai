@@ -248,6 +248,7 @@ func initializeChatOptions() (*app.Client, app.ChatOptions, bool) {
 			fmt.Fprintf(os.Stderr, "warning: failed to resolve system prompt (%v); using default concise prompt\n", err)
 			baseOpts.SystemPrompt = ""
 		case !fromFile && looksLikeSystemPromptPath(systemVal):
+			fmt.Fprintf(os.Stderr, "warning: system prompt %q looks like a file path but was not found; using default concise prompt\n", systemVal)
 			baseOpts.SystemPrompt = ""
 		default:
 			baseOpts.SystemPrompt = resolvedSystem
