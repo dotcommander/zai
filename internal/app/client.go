@@ -36,6 +36,7 @@ type ClientConfig struct {
 	APIKey         string
 	BaseURL        string
 	CodingBaseURL  string
+	UseCoding      bool
 	Model          string
 	Timeout        time.Duration
 	Verbose        bool
@@ -832,7 +833,11 @@ func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqDat
 
 // executeJSONRequestInternal is the internal implementation without circuit breaker.
 func (c *Client) executeJSONRequestInternal(ctx context.Context, endpoint string, reqData interface{}) ([]byte, error) {
-	req, err := buildJSONRequest(c.config.BaseURL, c.config.APIKey, ctx, endpoint, reqData)
+	baseURL := c.config.BaseURL
+	if c.config.UseCoding && endpoint == "chat/completions" {
+		baseURL = c.config.CodingBaseURL
+	}
+	req, err := buildJSONRequest(baseURL, c.config.APIKey, ctx, endpoint, reqData)
 	if err != nil {
 		return nil, err
 	}

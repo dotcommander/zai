@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/dotcommander/zai/internal/app"
+	"github.com/dotcommander/zai/internal/version"
 )
 
 // Constants for input size limits
@@ -60,8 +61,9 @@ func NewRunConfig() RunConfig {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "zai [prompt]",
-	Short: "Chat with Z.AI GLM model",
+	Use:     "zai [prompt]",
+	Short:   "Chat with Z.AI GLM model",
+	Version: version.String(),
 	Long: `ZAI is a CLI tool for chatting with Z.AI models.
 
 One-shot mode:
@@ -375,16 +377,13 @@ func buildClientConfig() app.ClientConfig {
 
 	baseURL := viper.GetString("api.base_url")
 	codingBaseURL := viper.GetString("api.coding_base_url")
-
-	// Swap to coding API if --coding flag or api.coding_plan config is set
-	if viper.GetBool("coding") || viper.GetBool("api.coding_plan") {
-		baseURL = codingBaseURL
-	}
+	useCoding := viper.GetBool("coding") || viper.GetBool("api.coding_plan")
 
 	return app.ClientConfig{
 		APIKey:        viper.GetString("api.key"),
 		BaseURL:       baseURL,
 		CodingBaseURL: codingBaseURL,
+		UseCoding:     useCoding,
 		Model:         viper.GetString("api.model"),
 		Verbose:       viper.GetBool("verbose"),
 		RateLimit:     rateLimitCfg,
