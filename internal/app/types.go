@@ -303,6 +303,29 @@ type TranscriptionOptions struct {
 	RequestID string   // Client-provided unique identifier
 }
 
+// StreamChunk represents a single SSE chunk from the streaming API.
+type StreamChunk struct {
+	ID      string         `json:"id"`
+	Object  string         `json:"object"`
+	Created int64          `json:"created"`
+	Model   string         `json:"model"`
+	Choices []StreamChoice `json:"choices"`
+	Usage   *Usage         `json:"usage,omitempty"`
+}
+
+// StreamChoice represents a choice in a streaming response chunk.
+type StreamChoice struct {
+	Index        int         `json:"index"`
+	Delta        StreamDelta `json:"delta"`
+	FinishReason *string     `json:"finish_reason"`
+}
+
+// StreamDelta represents the incremental content in a streaming chunk.
+type StreamDelta struct {
+	Role    string `json:"role,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
 // VideoGenerationRequest represents the video generation API request.
 type VideoGenerationRequest struct {
 	Model     string   `json:"model"`                // "cogvideox-3"

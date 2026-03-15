@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -480,6 +481,192 @@ func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (str
 	c.saveToHistory(prompt, response, usage)
 
 	return response, nil
+}
+
+// StreamReader reads SSE chunks from a streaming API response.
+type StreamReader struct {
+	scanner     *bufio.Scanner
+	body        io.ReadCloser
+	usage       Usage
+	fullContent strings.Builder
+	done        bool
+}
+
+// Next reads the next token from the stream.
+// Returns the delta content string and nil on success.
+// Returns "" and io.EOF when the stream is complete.
+func (sr *StreamReader) Next() (string, error) {
+	if sr.done {
+		return "", io.EOF
+	}
+
+	for sr.scanner.Scan() {
+		line := sr.scanner.Text()
+
+		if line == "" {
+			continue
+		}
+
+		if line == "data: [DONE]" {
+			sr.done = true
+			return "", io.EOF
+		}
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+
+		var chunk StreamChunk
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+
+		if chunk.Usage != nil {
+			sr.usage = *chunk.Usage
+		}
+
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+
+		content := chunk.Choices[0].Delta.Content
+		if content != "" {
+			sr.fullContent.WriteString(content)
+			return content, nil
+		}
+	}
+
+	if err := sr.scanner.Err(); err != nil {
+		return "", fmt.Errorf("stream read error: %w", err)
+	}
+
+	sr.done = true
+	return "", io.EOF
+}
+
+// Close closes the underlying response body.
+func (sr *StreamReader) Close() error {
+	return sr.body.Close()
+}
+
+// FullContent returns all accumulated content from the stream.
+func (sr *StreamReader) FullContent() string {
+	return sr.fullContent.String()
+}
+
+// StreamUsage returns the token usage from the stream (available after completion).
+func (sr *StreamReader) StreamUsage() Usage {
+	return sr.usage
+}
+
+// StreamChat sends a streaming chat request and returns a StreamReader.
+// The caller must call Close() on the returned StreamReader when done.
+func (c *Client) StreamChat(ctx context.Context, prompt string, opts ChatOptions) (*StreamReader, error) {
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
+	}
+
+	content, err := c.buildContent(ctx, prompt, opts.FilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	content = c.enrichWithURLContent(ctx, prompt, content, opts)
+	messages := c.buildMessagesWithContext(content, opts)
+
+	if opts.Think && opts.Thinking == nil {
+		opts.Thinking = &opts.Think
+	}
+
+	return c.doStreamRequest(ctx, messages, opts)
+}
+
+// SaveStreamToHistory saves a completed stream exchange to history.
+func (c *Client) SaveStreamToHistory(prompt, response string, usage Usage) {
+	c.saveToHistory(prompt, response, usage)
+}
+
+// doStreamRequest executes the streaming HTTP request to Z.AI API.
+func (c *Client) doStreamRequest(ctx context.Context, messages []Message, opts ChatOptions) (*StreamReader, error) {
+	var thinking *Thinking
+	if opts.Thinking != nil && *opts.Thinking {
+		thinking = &Thinking{Type: "enabled"}
+	} else {
+		thinking = &Thinking{Type: "disabled"}
+	}
+
+	reqData := ChatRequest{
+		Model:    c.config.Model,
+		Messages: messages,
+		Stream:   true,
+		Thinking: thinking,
+	}
+
+	if opts.Temperature != nil {
+		reqData.Temperature = *opts.Temperature
+	} else {
+		reqData.Temperature = 0.6
+	}
+
+	if opts.MaxTokens != nil {
+		reqData.MaxTokens = *opts.MaxTokens
+	} else {
+		reqData.MaxTokens = 8192
+	}
+
+	if opts.TopP != nil {
+		reqData.TopP = *opts.TopP
+	} else {
+		reqData.TopP = 0.9
+	}
+
+	if opts.Model != "" {
+		reqData.Model = opts.Model
+	}
+
+	jsonData, err := json.Marshal(reqData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	baseURL := c.config.BaseURL
+	if c.config.UseCoding {
+		baseURL = c.config.CodingBaseURL
+	}
+
+	url := fmt.Sprintf("%s/chat/completions", baseURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Accept-Language", "en-US,en")
+
+	c.logger.DebugContext(ctx, "sending streaming request", "url", url)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	return &StreamReader{
+		scanner: scanner,
+		body:    resp.Body,
+	}, nil
 }
 
 // enrichWithURLContent fetches web content for URLs in the prompt if web is enabled.
