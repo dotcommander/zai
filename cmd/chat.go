@@ -486,19 +486,36 @@ func handleRegularChat(ctx context.Context, sess *chatSession, baseOpts app.Chat
 	return sendChatMessage(ctx, sess, messageToSend, opts)
 }
 
-// sendChatMessage handles the actual chat API call with spinner animation
+// sendChatMessage handles the actual chat API call with streaming output
 func sendChatMessage(ctx context.Context, sess *chatSession, messageToSend string, opts app.ChatOptions) error {
-	// Send to API with spinner
-	var stop atomic.Bool
-	go animateThinking(nil, &stop)
-
-	response, err := sess.client.Chat(ctx, messageToSend, opts)
-	stop.Store(true)
-	time.Sleep(100 * time.Millisecond) // Let spinner clear
-
+	reader, err := sess.client.StreamChat(ctx, messageToSend, opts)
 	if err != nil {
 		return err
 	}
+	defer reader.Close()
+
+	// Print AI label, then stream tokens inline
+	fmt.Println()
+	fmt.Printf("%s ", theme.AILabel.Render("AI>"))
+
+	for {
+		token, err := reader.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("stream error: %w", err)
+		}
+		fmt.Print(token)
+	}
+	fmt.Println()
+	fmt.Println()
+
+	// Get accumulated response for context and history
+	response := reader.FullContent()
+
+	// Save to history
+	sess.client.SaveStreamToHistory(messageToSend, response, reader.StreamUsage())
 
 	// Update conversation context (keep last 10 exchanges = 20 messages)
 	sess.context = append(sess.context,
@@ -508,11 +525,6 @@ func sendChatMessage(ctx context.Context, sess *chatSession, messageToSend strin
 	if len(sess.context) > 20 {
 		sess.context = sess.context[2:]
 	}
-
-	// Display response with styling
-	fmt.Println()
-	fmt.Printf("%s %s\n", theme.AILabel.Render("AI>"), response)
-	fmt.Println()
 
 	return nil
 }

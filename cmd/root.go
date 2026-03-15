@@ -436,6 +436,12 @@ func readStdin() (string, error) {
 	return strings.TrimSpace(dataStr), nil
 }
 
+// isTerminal checks if a file descriptor is connected to a terminal.
+func isTerminal(f *os.File) bool {
+	stat, _ := f.Stat()
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
 // resolveSystemPrompt returns file contents if value points to an existing file.
 // Returns (value, false, nil) when the path doesn't exist so callers can decide fallback behavior.
 func resolveSystemPrompt(value string) (string, bool, error) {
@@ -504,12 +510,38 @@ func runOneShot(prompt string) error {
 	defer cancel()
 
 	prompt = augmentWithWebSearch(ctx, client, cfg, prompt)
-	response, err := callChatAPI(ctx, client, prompt, opts)
+
+	// JSON mode: use non-streaming for complete response
+	if cfg.JSONOutput {
+		response, err := callChatAPI(ctx, client, prompt, opts)
+		if err != nil {
+			return fmt.Errorf("failed to get response: %w", err)
+		}
+		formatOutput(response, cfg, prompt, opts)
+		return nil
+	}
+
+	// Streaming mode (works for both TTY and pipe)
+	reader, err := client.StreamChat(ctx, prompt, opts)
 	if err != nil {
 		return fmt.Errorf("failed to get response: %w", err)
 	}
+	defer reader.Close()
 
-	formatOutput(response, cfg, prompt, opts)
+	for {
+		token, err := reader.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("stream error: %w", err)
+		}
+		fmt.Print(token)
+	}
+	fmt.Println()
+
+	// Save to history
+	client.SaveStreamToHistory(prompt, reader.FullContent(), reader.StreamUsage())
 
 	return nil
 }
