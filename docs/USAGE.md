@@ -609,21 +609,32 @@ web_reader:
 
 ## Advanced Usage
 
+### Streaming
+
+All chat responses stream by default — tokens appear as they are generated instead of waiting for the full response. This applies to both one-shot mode and the interactive REPL.
+
+- **One-shot**: `zai "prompt"` streams tokens directly to stdout
+- **Chat REPL**: `zai chat` streams tokens after the `AI>` label
+- **JSON mode**: `zai "prompt" --json` falls back to non-streaming (needs complete response)
+
 ### Piping and Chaining
+
+When stdout is not a terminal (pipe or redirect), zai outputs raw text with no styling. Tokens stream through the pipe as they arrive, so downstream commands can start processing immediately.
 
 #### Chain Multiple Commands
 
-Pipe output between commands for multi-step processing:
-
 ```bash
+# Chain zai calls — each step streams into the next
+cat code.go | zai "find bugs" | zai "suggest fixes"
+
 # Chain zai with other tools
 cat largefile.log | zai "extract errors" | grep ERROR | sort | uniq -c
 
 # Process git output
 git diff HEAD~1 | zai "summarize changes" | tee summary.txt
 
-# Combine with jq for JSON processing
-curl -s https://api.example.com/data | zai "analyze trends" | jq '.trends'
+# Redirect streaming output to a file
+zai "write a haiku about Go" > haiku.txt
 ```
 
 #### Conditional Execution

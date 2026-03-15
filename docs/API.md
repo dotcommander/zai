@@ -90,7 +90,7 @@ Creates a client with full dependency injection support for testing.
 func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (string, error)
 ```
 
-Sends a prompt to the chat completion API and returns the response.
+Sends a prompt to the chat completion API and returns the full response (non-streaming). Used as fallback for JSON output mode.
 
 **Parameters:**
 
@@ -117,6 +117,77 @@ response, err := client.Chat(ctx, "Explain Go interfaces", app.ChatOptions{
     MaxTokens:   app.IntPtr(4096),
 })
 ```
+
+#### `StreamChat`
+
+```go
+func (c *Client) StreamChat(ctx context.Context, prompt string, opts ChatOptions) (*StreamReader, error)
+```
+
+Sends a streaming chat request via SSE and returns a `StreamReader`. This is the default for both one-shot and REPL modes. Tokens are delivered incrementally as they are generated.
+
+The caller **must** call `Close()` on the returned `StreamReader` when done. Streaming requests do not retry (not idempotent mid-stream).
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ctx` | `context.Context` | Context for cancellation/timeout |
+| `prompt` | `string` | User prompt/question |
+| `opts` | `ChatOptions` | Optional configuration overrides |
+
+**Returns:** `(*StreamReader, error)` - Stream reader or error
+
+**Example:**
+
+```go
+reader, err := client.StreamChat(ctx, "Explain Go interfaces", app.ChatOptions{
+    Temperature: app.Float64Ptr(0.7),
+})
+if err != nil {
+    return err
+}
+defer reader.Close()
+
+for {
+    token, err := reader.Next()
+    if err != nil {
+        if err == io.EOF {
+            break
+        }
+        return err
+    }
+    fmt.Print(token)
+}
+fmt.Println()
+
+// Access accumulated results after streaming
+fullResponse := reader.FullContent()
+usage := reader.StreamUsage()
+```
+
+#### `StreamReader`
+
+```go
+type StreamReader struct { /* ... */ }
+```
+
+Reads SSE chunks from a streaming API response.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `Next` | `() (string, error)` | Returns next token. Returns `"", io.EOF` when complete |
+| `Close` | `() error` | Closes the underlying HTTP response body |
+| `FullContent` | `() string` | Returns all accumulated content |
+| `StreamUsage` | `() Usage` | Returns token usage (available after stream completes) |
+
+#### `SaveStreamToHistory`
+
+```go
+func (c *Client) SaveStreamToHistory(prompt, response string, usage Usage)
+```
+
+Saves a completed stream exchange to history. Call after streaming completes with `FullContent()` and `StreamUsage()`.
 
 ---
 
@@ -485,6 +556,7 @@ The client implements multiple interfaces following ISP:
 ```go
 type ChatClient interface {
     Chat(ctx context.Context, prompt string, opts ChatOptions) (string, error)
+    StreamChat(ctx context.Context, prompt string, opts ChatOptions) (*StreamReader, error)
 }
 
 type VisionClient interface {

@@ -12,11 +12,21 @@ go build -o bin/zai . && ln -sf $(pwd)/bin/zai ~/go/bin/zai  # Install globally
 ## Usage
 
 ```bash
-./bin/zai "prompt"                # One-shot
-./bin/zai chat                    # Interactive REPL
+./bin/zai "prompt"                # One-shot (streaming)
+./bin/zai chat                    # Interactive REPL (streaming)
 echo "text" | ./bin/zai           # Stdin pipe
 ./bin/zai -f file.go "explain"    # With file context
 ./bin/zai --search "query"        # Search-augmented generation
+./bin/zai "prompt" --json         # Non-streaming JSON output
+```
+
+### Pipe Chaining
+
+When stdout is not a TTY, zai outputs raw text — no styling, no wrappers. This enables chaining:
+
+```bash
+cat code.go | zai "find bugs" | zai "suggest fixes"
+git diff | zai "summarize changes" > summary.txt
 ```
 
 ## Configuration
@@ -153,6 +163,8 @@ internal/
 
 ## Key Patterns
 
+- **Streaming**: SSE streaming is the default for chat — tokens render as they arrive via `StreamChat()`/`StreamReader`. JSON mode (`--json`) falls back to non-streaming `Chat()`
+- **Pipe detection**: `isTerminal(os.Stdout)` checks `os.ModeCharDevice`. Non-TTY stdout outputs raw streamed text for pipe chaining
 - **Stdin detection**: `(stat.Mode() & os.ModeCharDevice) == 0`
 - **Stdin + prompt**: Combines as `prompt + <stdin>data</stdin>`
 - **History**: JSONL at `~/.config/zai/history.jsonl`
@@ -162,7 +174,7 @@ internal/
 - **Search Augmentation**: `--search` flag prepends `<web_search_results>` context
 - **File flag URLs**: `-f` detects http/https and routes to web reader
 - **Image Enhancement**: LLM transforms prompts using professional image engineering framework
-- **Retry/Circuit Breaker**: Exponential backoff with jitter; circuit breaker per endpoint (Closed → Open → Half-Open)
+- **Retry/Circuit Breaker**: Exponential backoff with jitter; circuit breaker per endpoint (Closed → Open → Half-Open). Streaming requests do NOT retry (not idempotent mid-stream)
 
 ## Operational Context
 
