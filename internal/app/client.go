@@ -28,21 +28,22 @@ const (
 // ClientConfig holds all configuration for the ZAI client.
 // Injected at construction time - no global state.
 type ClientConfig struct {
-	APIKey         string
-	BaseURL        string
-	CodingBaseURL  string
-	UseCoding      bool
-	Model          string
-	ImageModel     string
-	VisionModel    string
-	AudioModel     string
-	TTSModel       string
-	EmbeddingModel string
-	Timeout        time.Duration
-	Verbose        bool
-	RateLimit      RateLimitConfig
-	RetryConfig    RetryConfig
-	CircuitBreaker config.CircuitBreakerConfig
+	APIKey           string
+	BaseURL          string
+	CodingBaseURL    string
+	EmbeddingBaseURL string
+	UseCoding        bool
+	Model            string
+	ImageModel       string
+	VisionModel      string
+	AudioModel       string
+	TTSModel         string
+	EmbeddingModel   string
+	Timeout          time.Duration
+	Verbose          bool
+	RateLimit        RateLimitConfig
+	RetryConfig      RetryConfig
+	CircuitBreaker   config.CircuitBreakerConfig
 }
 
 // RateLimitConfig holds rate limiting configuration.
@@ -516,8 +517,11 @@ func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqDat
 // executeJSONRequestInternal is the internal implementation without circuit breaker.
 func (c *Client) executeJSONRequestInternal(ctx context.Context, endpoint string, reqData interface{}) ([]byte, error) {
 	baseURL := c.config.BaseURL
-	if c.config.UseCoding && endpoint == "chat/completions" {
+	switch {
+	case c.config.UseCoding && endpoint == "chat/completions":
 		baseURL = c.config.CodingBaseURL
+	case c.config.EmbeddingBaseURL != "" && endpoint == "embeddings":
+		baseURL = c.config.EmbeddingBaseURL
 	}
 	req, err := buildJSONRequest(ctx, baseURL, c.config.APIKey, endpoint, reqData)
 	if err != nil {

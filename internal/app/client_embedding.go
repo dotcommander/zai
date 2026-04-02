@@ -16,7 +16,7 @@ func (c *Client) CreateEmbedding(ctx context.Context, texts []string, opts Embed
 		return nil, errors.New("at least one text input is required")
 	}
 
-	model := resolveModel(opts.Model, c.config.EmbeddingModel, "embedding-3")
+	model := resolveModel(opts.Model, c.config.EmbeddingModel, "glm-4.7")
 
 	reqData := EmbeddingRequest{
 		Model: model,

@@ -299,6 +299,8 @@ func styledHelp(cmd *cobra.Command, args []string) {
 		{"--think", "Enable reasoning mode"},
 		{"-C, --coding", "Use coding API endpoint"},
 		{"--json", "Output as JSON"},
+		{"--system <prompt>", "Custom system prompt (text or file path)"},
+		{"--config <path>", "Config file (default ~/.config/zai/config.yaml)"},
 		{"-v, --verbose", "Show debug info"},
 		{"-h, --help", "Show this help"},
 	}
@@ -365,6 +367,23 @@ func getModelWithDefault(configKey, fallback string) string {
 	return fallback
 }
 
+// normalizeAPIURLs ensures baseURL always points to the standard API endpoint
+// and codingBaseURL always points to the coding endpoint. If the user configured
+// base_url with the coding path, we fix both URLs so non-chat endpoints work.
+func normalizeAPIURLs(baseURL, codingBaseURL string) (string, string) {
+	const codingPath = "/api/coding/paas/"
+	const standardPath = "/api/paas/"
+
+	if strings.Contains(baseURL, codingPath) {
+		// User put the coding URL in base_url — derive the standard URL
+		if codingBaseURL == "" || codingBaseURL == baseURL {
+			codingBaseURL = baseURL
+		}
+		baseURL = strings.Replace(baseURL, codingPath, standardPath, 1)
+	}
+	return baseURL, codingBaseURL
+}
+
 // buildClientConfig creates ClientConfig from viper settings.
 func buildClientConfig() app.ClientConfig {
 	// Load retry config from viper
@@ -384,6 +403,10 @@ func buildClientConfig() app.ClientConfig {
 	codingBaseURL := viper.GetString("api.coding_base_url")
 	useCoding := viper.GetBool("coding") || viper.GetBool("api.coding_plan")
 
+	// Normalize URLs: if user set base_url to the coding endpoint, derive the
+	// standard URL so non-chat endpoints (embeddings, search, reader) still work.
+	baseURL, codingBaseURL = normalizeAPIURLs(baseURL, codingBaseURL)
+
 	// Load circuit breaker config from viper
 	cbCfg := config.CircuitBreakerConfig{
 		Enabled:          viper.GetBool("api.circuit_breaker.enabled"),
@@ -393,20 +416,21 @@ func buildClientConfig() app.ClientConfig {
 	}
 
 	return app.ClientConfig{
-		APIKey:         viper.GetString("api.key"),
-		BaseURL:        baseURL,
-		CodingBaseURL:  codingBaseURL,
-		UseCoding:      useCoding,
-		Model:          viper.GetString("api.model"),
-		ImageModel:     viper.GetString("api.image_model"),
-		VisionModel:    viper.GetString("api.vision_model"),
-		AudioModel:     viper.GetString("api.audio_model"),
-		TTSModel:       viper.GetString("api.tts_model"),
-		EmbeddingModel: viper.GetString("api.embedding_model"),
-		Verbose:        viper.GetBool("verbose"),
-		RateLimit:      rateLimitCfg,
-		RetryConfig:    retryCfg,
-		CircuitBreaker: cbCfg,
+		APIKey:           viper.GetString("api.key"),
+		BaseURL:          baseURL,
+		CodingBaseURL:    codingBaseURL,
+		EmbeddingBaseURL: viper.GetString("api.embedding_base_url"),
+		UseCoding:        useCoding,
+		Model:            viper.GetString("api.model"),
+		ImageModel:       viper.GetString("api.image_model"),
+		VisionModel:      viper.GetString("api.vision_model"),
+		AudioModel:       viper.GetString("api.audio_model"),
+		TTSModel:         viper.GetString("api.tts_model"),
+		EmbeddingModel:   viper.GetString("api.embedding_model"),
+		Verbose:          viper.GetBool("verbose"),
+		RateLimit:        rateLimitCfg,
+		RetryConfig:      retryCfg,
+		CircuitBreaker:   cbCfg,
 	}
 }
 
@@ -539,7 +563,7 @@ func runOneShot(prompt string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get response: %w", err)
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck // best-effort cleanup on read-only stream
 
 	for {
 		token, err := reader.Next()

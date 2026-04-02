@@ -19,20 +19,21 @@ type Config struct {
 
 // APIConfig holds API connection settings.
 type APIConfig struct {
-	Key            string               `mapstructure:"key"`
-	BaseURL        string               `mapstructure:"base_url"`
-	CodingBaseURL  string               `mapstructure:"coding_base_url"`
-	CodingPlan     bool                 `mapstructure:"coding_plan"`
-	Model          string               `mapstructure:"model"`
-	ImageModel     string               `mapstructure:"image_model"`
-	VideoModel     string               `mapstructure:"video_model"`
-	VisionModel    string               `mapstructure:"vision_model"`
-	AudioModel     string               `mapstructure:"audio_model"`
-	TTSModel       string               `mapstructure:"tts_model"`
-	EmbeddingModel string               `mapstructure:"embedding_model"`
-	RateLimit      RateLimitConfig      `mapstructure:"rate_limit"`
-	Retry          RetryConfig          `mapstructure:"retry"`
-	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker"`
+	Key              string               `mapstructure:"key"`
+	BaseURL          string               `mapstructure:"base_url"`
+	CodingBaseURL    string               `mapstructure:"coding_base_url"`
+	EmbeddingBaseURL string               `mapstructure:"embedding_base_url"`
+	CodingPlan       bool                 `mapstructure:"coding_plan"`
+	Model            string               `mapstructure:"model"`
+	ImageModel       string               `mapstructure:"image_model"`
+	VideoModel       string               `mapstructure:"video_model"`
+	VisionModel      string               `mapstructure:"vision_model"`
+	AudioModel       string               `mapstructure:"audio_model"`
+	TTSModel         string               `mapstructure:"tts_model"`
+	EmbeddingModel   string               `mapstructure:"embedding_model"`
+	RateLimit        RateLimitConfig      `mapstructure:"rate_limit"`
+	Retry            RetryConfig          `mapstructure:"retry"`
+	CircuitBreaker   CircuitBreakerConfig `mapstructure:"circuit_breaker"`
 }
 
 // RateLimitConfig holds rate limiting settings.
@@ -99,6 +100,7 @@ func Load() (*Config, error) {
 func SetDefaults() {
 	viper.SetDefault("api.base_url", "https://api.z.ai/api/paas/v4")
 	viper.SetDefault("api.coding_base_url", "https://api.z.ai/api/coding/paas/v4")
+	viper.SetDefault("api.embedding_base_url", "")
 	viper.SetDefault("api.coding_plan", false)
 	viper.SetDefault("api.model", "glm-4.7")
 	viper.SetDefault("api.image_model", "cogview-4-250304")
@@ -106,7 +108,7 @@ func SetDefaults() {
 	viper.SetDefault("api.vision_model", "glm-4.6v")
 	viper.SetDefault("api.audio_model", "glm-asr-2512")
 	viper.SetDefault("api.tts_model", "glm-tts")
-	viper.SetDefault("api.embedding_model", "embedding-3")
+	viper.SetDefault("api.embedding_model", "glm-4.7")
 
 	// Rate limit defaults
 	viper.SetDefault("api.rate_limit.requests_per_second", 10)
