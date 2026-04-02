@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/dotcommander/zai/internal/app"
+	"github.com/dotcommander/zai/internal/render"
 )
 
 var chatCmd = &cobra.Command{
@@ -489,10 +490,11 @@ func sendChatMessage(ctx context.Context, sess *chatSession, messageToSend strin
 	}
 	defer reader.Close() //nolint:errcheck // best-effort cleanup on read-only stream
 
-	// Print AI label, then stream tokens inline
+	// Print AI label on its own line so re-renders don't overwrite it.
 	fmt.Println()
-	fmt.Printf("%s ", theme.AILabel.Render("AI>"))
+	fmt.Println(theme.AILabel.Render("AI>"))
 
+	md := render.New()
 	for {
 		token, err := reader.Next()
 		if err != nil {
@@ -501,9 +503,11 @@ func sendChatMessage(ctx context.Context, sess *chatSession, messageToSend strin
 			}
 			return fmt.Errorf("stream error: %w", err)
 		}
-		fmt.Print(token)
+		if raw := md.Token(token); raw != "" {
+			fmt.Print(raw)
+		}
 	}
-	fmt.Println()
+	md.Flush()
 	fmt.Println()
 
 	// Get accumulated response for context and history
