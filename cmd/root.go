@@ -16,7 +16,6 @@ import (
 
 	"github.com/dotcommander/zai/internal/app"
 	"github.com/dotcommander/zai/internal/config"
-	"github.com/dotcommander/zai/internal/render"
 	"github.com/dotcommander/zai/internal/version"
 )
 
@@ -566,7 +565,6 @@ func runOneShot(prompt string) error {
 	}
 	defer reader.Close() //nolint:errcheck // best-effort cleanup on read-only stream
 
-	md := render.New()
 	for {
 		token, err := reader.Next()
 		if err != nil {
@@ -575,11 +573,8 @@ func runOneShot(prompt string) error {
 			}
 			return fmt.Errorf("stream error: %w", err)
 		}
-		if raw := md.Token(token); raw != "" {
-			fmt.Print(raw)
-		}
+		fmt.Print(token)
 	}
-	md.Flush()
 	fmt.Println()
 
 	// Save to history
