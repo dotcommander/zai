@@ -487,7 +487,7 @@ func sendChatMessage(ctx context.Context, sess *chatSession, messageToSend strin
 	if err != nil {
 		return err
 	}
-	defer reader.Close()
+	defer reader.Close() //nolint:errcheck // best-effort cleanup on read-only stream
 
 	// Print AI label, then stream tokens inline
 	fmt.Println()

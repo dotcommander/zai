@@ -103,7 +103,7 @@ func runTTS(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("TTS failed: %w", err)
 	}
 
-	if err := os.WriteFile(outputPath, audioData, 0o644); err != nil {
+	if err := os.WriteFile(outputPath, audioData, 0o600); err != nil {
 		return fmt.Errorf("failed to write audio file: %w", err)
 	}
 

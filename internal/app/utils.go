@@ -198,7 +198,7 @@ func FormatSearchResultsForChat(results []SearchResult, query string) string {
 `
 
 	for i, result := range results {
-		sb.WriteString(fmt.Sprintf(resultTemplate, i+1, result.Title, result.Link))
+		fmt.Fprintf(&sb, resultTemplate, i+1, result.Title, result.Link)
 
 		if result.Content != "" {
 			// Truncate content if too long
@@ -254,7 +254,7 @@ func FormatSearchForContext(results []SearchResult) string {
 `
 
 	for _, result := range results {
-		sb.WriteString(fmt.Sprintf(resultTemplate, result.Title, result.Link))
+		fmt.Fprintf(&sb, resultTemplate, result.Title, result.Link)
 
 		if result.Content != "" {
 			// Truncate very long content to keep context manageable

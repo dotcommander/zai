@@ -15,7 +15,7 @@ import (
 )
 
 // TestClientChat tests the Chat method with mocked HTTP responses.
-func TestClientChat(t *testing.T) {
+func TestClientChat(t *testing.T) { //nolint:funlen // table-driven test with multiple subtests
 	tests := []struct {
 		name           string
 		prompt         string

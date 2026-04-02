@@ -362,7 +362,7 @@ func getCachePath(sourcePath string) (string, error) {
 	hashStr := hex.EncodeToString(hash[:8])
 
 	cacheDir := filepath.Join(os.Getenv("HOME"), ".cache", "zai", "audio")
-	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+	if err := os.MkdirAll(cacheDir, 0700); err != nil { //nolint:gosec // G703: path derived from HOME env, not user-controlled input
 		return "", err
 	}
 

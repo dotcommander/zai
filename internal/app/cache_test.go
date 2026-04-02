@@ -12,7 +12,7 @@ import (
 )
 
 // TestFileSearchCache tests the FileSearchCache implementation.
-func TestFileSearchCache(t *testing.T) {
+func TestFileSearchCache(t *testing.T) { //nolint:funlen // table-driven test with multiple subtests
 	// Create temp directory for test cache
 	tempDir := t.TempDir()
 	cache := NewFileSearchCache(tempDir)

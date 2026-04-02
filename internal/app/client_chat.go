@@ -224,7 +224,7 @@ func (c *Client) doStreamRequest(ctx context.Context, messages []Message, opts C
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		resp.Body.Close() //nolint:errcheck // body already read, closing for cleanup
 		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
