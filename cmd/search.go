@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -65,45 +63,82 @@ func registerSearchCmd() {
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
-	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-
-	// Check if web search is enabled
 	if !cfg.WebSearch.Enabled {
 		return errors.New("web search is disabled in configuration")
 	}
 
-	// Get query from args or stdin
-	var query string
+	query, err := parseSearchQuery(args)
+	if err != nil {
+		return err
+	}
+
+	opts, err := buildSearchOptions(cfg)
+	if err != nil {
+		return err
+	}
+
+	client := newClientWithConfig(app.ClientConfig{
+		APIKey:  cfg.API.Key,
+		BaseURL: cfg.API.BaseURL,
+		Model:   cfg.API.Model,
+		Timeout: time.Duration(cfg.WebSearch.Timeout) * time.Second,
+		Verbose: viper.GetBool("verbose"),
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.WebSearch.Timeout)*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	resp, err := client.SearchWeb(ctx, query, opts)
+	if err != nil {
+		return fmt.Errorf("search failed: %w", err)
+	}
+
+	format := searchFormat
+	if viper.GetBool("json") {
+		format = "json"
+	}
+
+	output, err := formatSearchOutput(resp.SearchResult, format, query, time.Since(start), viper.GetBool("verbose"))
+	if err != nil {
+		return fmt.Errorf("failed to format output: %w", err)
+	}
+
+	fmt.Print(output)
+	return nil
+}
+
+// parseSearchQuery extracts query from args or stdin.
+func parseSearchQuery(args []string) (string, error) {
 	switch {
 	case len(args) > 0:
-		query = args[0]
+		return args[0], nil
 	case hasStdinData():
-		var data []byte
-		data, err = io.ReadAll(os.Stdin)
+		query, err := readStdin()
 		if err != nil {
-			return fmt.Errorf("failed to read from stdin: %w", err)
+			return "", fmt.Errorf("failed to read from stdin: %w", err)
 		}
-		query = strings.TrimSpace(string(data))
 		if query == "" {
-			return errors.New("empty query from stdin")
+			return "", errors.New("empty query from stdin")
 		}
+		return query, nil
 	default:
-		return errors.New("search query is required")
+		return "", errors.New("search query is required")
+	}
+}
+
+var validSearchFormats = map[string]bool{"table": true, "detailed": true, "json": true}
+
+// buildSearchOptions creates SearchOptions from flags with config defaults.
+func buildSearchOptions(cfg *config.Config) (app.SearchOptions, error) {
+	if !validSearchFormats[searchFormat] {
+		return app.SearchOptions{}, fmt.Errorf("invalid format: %s (must be table, detailed, or json)", searchFormat)
 	}
 
-	// Validate format
-	validFormats := map[string]bool{
-		"table": true, "detailed": true, "json": true,
-	}
-	if !validFormats[searchFormat] {
-		return fmt.Errorf("invalid format: %s (must be table, detailed, or json)", searchFormat)
-	}
-
-	// Prepare search options
 	opts := app.SearchOptions{
 		Count:          searchCount,
 		DomainFilter:   searchDomain,
@@ -117,7 +152,6 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		ResultSequence: searchResultSequence,
 	}
 
-	// Use defaults if not specified
 	if opts.Count == 0 {
 		opts.Count = cfg.WebSearch.DefaultCount
 	}
@@ -134,43 +168,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		opts.ContentSize = cfg.WebSearch.ContentSize
 	}
 
-	// Create client using factory with custom timeout
-	client := newClientWithConfig(app.ClientConfig{
-		APIKey:  cfg.API.Key,
-		BaseURL: cfg.API.BaseURL,
-		Model:   cfg.API.Model,
-		Timeout: time.Duration(cfg.WebSearch.Timeout) * time.Second,
-		Verbose: viper.GetBool("verbose"),
-	})
-
-	// Set context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.WebSearch.Timeout)*time.Second)
-	defer cancel()
-
-	// Perform search
-	start := time.Now()
-	resp, err := client.SearchWeb(ctx, query, opts)
-	if err != nil {
-		return fmt.Errorf("search failed: %w", err)
-	}
-
-	duration := time.Since(start)
-
-	// Format and display results
-	// Use JSON format if either --json global flag or --format json is specified
-	format := searchFormat
-	if viper.GetBool("json") {
-		format = "json"
-	}
-
-	output, err := formatSearchOutput(resp.SearchResult, format, query, duration, viper.GetBool("verbose"))
-	if err != nil {
-		return fmt.Errorf("failed to format output: %w", err)
-	}
-
-	fmt.Print(output)
-
-	return nil
+	return opts, nil
 }
 
 // formatSearchOutput formats search results according to the specified format
@@ -191,9 +189,9 @@ func formatSearchTable(results []app.SearchResult, query string, duration time.D
 
 	// Header
 	if verbose {
-		sb.WriteString(fmt.Sprintf("🔍 Search results for: %s\n", query))
-		sb.WriteString(fmt.Sprintf("⏱️  Duration: %v\n", duration))
-		sb.WriteString(fmt.Sprintf("📊 Results: %d\n\n", len(results)))
+		fmt.Fprintf(&sb, "🔍 Search results for: %s\n", query)
+		fmt.Fprintf(&sb, "⏱️  Duration: %v\n", duration)
+		fmt.Fprintf(&sb, "📊 Results: %d\n\n", len(results))
 	}
 
 	if len(results) == 0 {
@@ -224,7 +222,7 @@ func formatSearchTable(results []app.SearchResult, query string, duration time.D
 	}
 
 	// Table header
-	sb.WriteString(fmt.Sprintf("%-*s  %-*s  %s\n", maxTitleLen, "Title", maxDomainLen, "Domain", "URL"))
+	fmt.Fprintf(&sb, "%-*s  %-*s  %s\n", maxTitleLen, "Title", maxDomainLen, "Domain", "URL")
 	sb.WriteString(strings.Repeat("-", maxTitleLen+maxDomainLen+50) + "\n")
 
 	// Table rows
@@ -239,7 +237,7 @@ func formatSearchTable(results []app.SearchResult, query string, duration time.D
 			domain = domain[:maxDomainLen-3] + "..."
 		}
 
-		sb.WriteString(fmt.Sprintf("%-*s  %-*s  %s\n", maxTitleLen, title, maxDomainLen, domain, result.Link))
+		fmt.Fprintf(&sb, "%-*s  %-*s  %s\n", maxTitleLen, title, maxDomainLen, domain, result.Link)
 
 		// Add content preview for first few results in verbose mode
 		if verbose && i < 3 {
@@ -247,7 +245,7 @@ func formatSearchTable(results []app.SearchResult, query string, duration time.D
 			if len(content) > 100 {
 				content = content[:100] + "..."
 			}
-			sb.WriteString(fmt.Sprintf("   %s\n\n", content))
+			fmt.Fprintf(&sb, "   %s\n\n", content)
 		}
 	}
 
@@ -259,9 +257,9 @@ func formatSearchDetailed(results []app.SearchResult, query string, duration tim
 	var sb strings.Builder
 
 	// Header
-	sb.WriteString(fmt.Sprintf("🔍 Search results for: %s\n", query))
-	sb.WriteString(fmt.Sprintf("⏱️  Duration: %v\n", duration))
-	sb.WriteString(fmt.Sprintf("📊 Results: %d\n\n", len(results)))
+	fmt.Fprintf(&sb, "🔍 Search results for: %s\n", query)
+	fmt.Fprintf(&sb, "⏱️  Duration: %v\n", duration)
+	fmt.Fprintf(&sb, "📊 Results: %d\n\n", len(results))
 
 	if len(results) == 0 {
 		sb.WriteString("No results found.\n")
@@ -270,13 +268,13 @@ func formatSearchDetailed(results []app.SearchResult, query string, duration tim
 
 	// Detailed results
 	for i, result := range results {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, result.Title))
-		sb.WriteString(fmt.Sprintf("   URL: %s\n", result.Link))
+		fmt.Fprintf(&sb, "%d. %s\n", i+1, result.Title)
+		fmt.Fprintf(&sb, "   URL: %s\n", result.Link)
 		if result.Media != "" {
-			sb.WriteString(fmt.Sprintf("   Media: %s\n", result.Media))
+			fmt.Fprintf(&sb, "   Media: %s\n", result.Media)
 		}
 		if result.PublishDate != "" {
-			sb.WriteString(fmt.Sprintf("   Published: %s\n", result.PublishDate))
+			fmt.Fprintf(&sb, "   Published: %s\n", result.PublishDate)
 		}
 		sb.WriteString("\n")
 
