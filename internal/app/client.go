@@ -39,6 +39,11 @@ type ClientConfig struct {
 	CodingBaseURL  string
 	UseCoding      bool
 	Model          string
+	ImageModel     string
+	VisionModel    string
+	AudioModel     string
+	TTSModel       string
+	EmbeddingModel string
 	Timeout        time.Duration
 	Verbose        bool
 	RateLimit      RateLimitConfig
@@ -131,6 +136,16 @@ type VideoClient interface {
 	RetrieveVideoResult(ctx context.Context, taskID string) (*VideoResultResponse, error)
 }
 
+// TTSClient interface for text-to-speech (ISP compliance).
+type TTSClient interface {
+	TextToSpeech(ctx context.Context, text string, opts TTSOptions) ([]byte, error)
+}
+
+// EmbeddingClient interface for text embeddings (ISP compliance).
+type EmbeddingClient interface {
+	CreateEmbedding(ctx context.Context, texts []string, opts EmbeddingOptions) (*EmbeddingResponse, error)
+}
+
 // FullClient composes all client interfaces into one (backward compatibility).
 type FullClient interface {
 	ChatClient
@@ -141,6 +156,8 @@ type FullClient interface {
 	WebSearchClient
 	AudioClient
 	VideoClient
+	TTSClient
+	EmbeddingClient
 }
 
 // Client implements all client interfaces with Z.AI API.
@@ -429,6 +446,8 @@ func (c *Client) initCircuitBreakers() {
 	c.circuitBreakers["models"] = NewCircuitBreaker("models", c.config.CircuitBreaker, c.logger)
 	c.circuitBreakers["images"] = NewCircuitBreaker("images", c.config.CircuitBreaker, c.logger)
 	c.circuitBreakers["videos"] = NewCircuitBreaker("videos", c.config.CircuitBreaker, c.logger)
+	c.circuitBreakers["tts"] = NewCircuitBreaker("tts", c.config.CircuitBreaker, c.logger)
+	c.circuitBreakers["embeddings"] = NewCircuitBreaker("embeddings", c.config.CircuitBreaker, c.logger)
 }
 
 // getCircuitBreaker returns the appropriate circuit breaker for an endpoint.
@@ -983,8 +1002,12 @@ func extractEndpointName(endpoint string) string {
 		return "images"
 	case strings.Contains(endpoint, "videos"):
 		return "videos"
+	case strings.Contains(endpoint, "audio/speech"), strings.Contains(endpoint, "tts"), strings.Contains(endpoint, "voice"):
+		return "tts"
 	case strings.Contains(endpoint, "audio"):
 		return "audio"
+	case strings.Contains(endpoint, "embeddings"):
+		return "embeddings"
 	default:
 		return "default"
 	}
@@ -1276,7 +1299,10 @@ func (c *Client) GenerateImage(ctx context.Context, prompt string, opts ImageOpt
 	// Build request with defaults
 	model := opts.Model
 	if model == "" {
-		model = "glm-image" // Default image model
+		model = c.config.ImageModel
+		if model == "" {
+			model = "cogview-4-250304"
+		}
 	}
 
 	reqData := ImageGenerationRequest{
@@ -1424,9 +1450,15 @@ func validateImageOptions(opts ImageOptions) error {
 			"1024x768":  true,
 			"768x1024":  true,
 			"512x512":   true,
+			"768x1344":  true,
+			"864x1152":  true,
+			"1344x768":  true,
+			"1152x864":  true,
+			"1440x720":  true,
+			"720x1440":  true,
 		}
 		if !supportedSizes[opts.Size] {
-			return fmt.Errorf("invalid size: %s (supported: 1024x1024, 1024x768, 768x1024, 512x512)", opts.Size)
+			return fmt.Errorf("invalid size: %s (supported: 1024x1024, 1024x768, 768x1024, 512x512, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440)", opts.Size)
 		}
 	}
 
@@ -1466,10 +1498,17 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 	}
 
 	// Build request
+	searchEngine := opts.SearchEngine
+	if searchEngine == "" {
+		searchEngine = "search_std"
+	}
 	reqData := WebSearchRequest{
-		SearchEngine: "search-prime",
-		SearchQuery:  query,
-		Count:        &opts.Count,
+		SearchEngine:   searchEngine,
+		SearchQuery:    query,
+		Count:          &opts.Count,
+		ContentSize:    opts.ContentSize,
+		SearchPrompt:   opts.SearchPrompt,
+		ResultSequence: opts.ResultSequence,
 	}
 
 	// Add optional parameters
@@ -1484,6 +1523,12 @@ func (c *Client) SearchWeb(ctx context.Context, query string, opts SearchOptions
 	}
 	if opts.UserID != "" {
 		reqData.UserID = &opts.UserID
+	}
+	if opts.SearchResult {
+		reqData.SearchResult = &opts.SearchResult
+	}
+	if opts.RequireSearch {
+		reqData.RequireSearch = &opts.RequireSearch
 	}
 
 	var searchResp WebSearchResponse
@@ -1555,7 +1600,10 @@ func (c *Client) Vision(ctx context.Context, prompt string, imageBase64 string, 
 	// Build vision model
 	model := opts.Model
 	if model == "" {
-		model = "glm-4.6v" // Default vision model
+		model = c.config.VisionModel
+		if model == "" {
+			model = "glm-4.6v"
+		}
 	}
 
 	// Build multimodal messages
@@ -1649,7 +1697,10 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	// Build model
 	model := opts.Model
 	if model == "" {
-		model = "glm-asr-2512"
+		model = c.config.AudioModel
+		if model == "" {
+			model = "glm-asr-2512"
+		}
 	}
 
 	// Build multipart form
@@ -1852,4 +1903,90 @@ func validateVideoOptions(opts VideoOptions) error {
 	}
 
 	return nil
+}
+
+// TextToSpeech synthesizes text to audio using Z.AI's TTS API.
+// Returns raw audio bytes (WAV or PCM format).
+func (c *Client) TextToSpeech(ctx context.Context, text string, opts TTSOptions) ([]byte, error) {
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
+	}
+	if text == "" {
+		return nil, errors.New("text is required for TTS")
+	}
+
+	model := opts.Model
+	if model == "" {
+		model = c.config.TTSModel
+		if model == "" {
+			model = "glm-tts"
+		}
+	}
+
+	voice := opts.Voice
+	if voice == "" {
+		voice = "tongtong"
+	}
+
+	responseFormat := opts.ResponseFormat
+	if responseFormat == "" {
+		responseFormat = "wav"
+	}
+
+	reqData := TTSSpeechRequest{
+		Model:          model,
+		Input:          text,
+		Voice:          voice,
+		Speed:          opts.Speed,
+		Volume:         opts.Volume,
+		ResponseFormat: responseFormat,
+	}
+
+	body, err := c.executeJSONRequest(ctx, "audio/speech", reqData)
+	if err != nil {
+		return nil, fmt.Errorf("TTS API error: %w", err)
+	}
+
+	c.logger.DebugContext(ctx, "TTS complete", "bytes", len(body))
+
+	return body, nil
+}
+
+// CreateEmbedding generates embeddings for the given texts.
+func (c *Client) CreateEmbedding(ctx context.Context, texts []string, opts EmbeddingOptions) (*EmbeddingResponse, error) {
+	if err := c.requireAPIKey(); err != nil {
+		return nil, err
+	}
+	if len(texts) == 0 {
+		return nil, errors.New("at least one text input is required")
+	}
+
+	model := opts.Model
+	if model == "" {
+		model = c.config.EmbeddingModel
+		if model == "" {
+			model = "embedding-3"
+		}
+	}
+
+	reqData := EmbeddingRequest{
+		Model: model,
+		Input: texts,
+	}
+
+	var embResp EmbeddingResponse
+	body, err := c.executeJSONRequest(ctx, "embeddings", reqData)
+	if err != nil {
+		return nil, fmt.Errorf("embedding API error: %w", err)
+	}
+	if err := json.Unmarshal(body, &embResp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal embedding response: %w", err)
+	}
+
+	c.logger.DebugContext(ctx, "embedding complete",
+		"model", embResp.Model,
+		"results", len(embResp.Data),
+		"prompt_tokens", embResp.Usage.PromptTokens)
+
+	return &embResp, nil
 }

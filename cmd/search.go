@@ -19,11 +19,17 @@ import (
 )
 
 var (
-	searchCount   int
-	searchRecency string
-	searchDomain  string
-	searchLang    string
-	searchFormat  string
+	searchCount          int
+	searchRecency        string
+	searchDomain         string
+	searchLang           string
+	searchFormat         string
+	searchEngine         string
+	searchContentSize    string
+	searchShowSources    bool
+	searchForceSearch    bool
+	searchCustomPrompt   string
+	searchResultSequence string
 )
 
 var searchCmd = &cobra.Command{
@@ -50,6 +56,12 @@ func registerSearchCmd() {
 	searchCmd.Flags().StringVarP(&searchDomain, "domain", "d", "", "Limit to specific domain")
 	searchCmd.Flags().StringVarP(&searchLang, "lang", "l", "", "Search language (e.g., en, zh). Default: config value")
 	searchCmd.Flags().StringVarP(&searchFormat, "format", "o", "table", "Output format: table, detailed, json")
+	searchCmd.Flags().StringVar(&searchEngine, "engine", "", "Search engine: search_std, search_pro, search_pro_sogou, search_pro_quark")
+	searchCmd.Flags().StringVar(&searchContentSize, "content-size", "", "Content detail: medium (400-600 chars) or high (2500 chars)")
+	searchCmd.Flags().BoolVar(&searchShowSources, "sources", false, "Include detailed source information")
+	searchCmd.Flags().BoolVar(&searchForceSearch, "require-search", false, "Force response based on search results")
+	searchCmd.Flags().StringVar(&searchCustomPrompt, "search-prompt", "", "Custom prompt for processing results (supports {{current_date}})")
+	searchCmd.Flags().StringVar(&searchResultSequence, "result-sequence", "", "Result ordering: before or after (default: after)")
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
@@ -93,10 +105,16 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	// Prepare search options
 	opts := app.SearchOptions{
-		Count:         searchCount,
-		DomainFilter:  searchDomain,
-		RecencyFilter: searchRecency,
-		Language:      searchLang,
+		Count:          searchCount,
+		DomainFilter:   searchDomain,
+		RecencyFilter:  searchRecency,
+		Language:       searchLang,
+		SearchEngine:   searchEngine,
+		ContentSize:    searchContentSize,
+		SearchResult:   searchShowSources,
+		RequireSearch:  searchForceSearch,
+		SearchPrompt:   searchCustomPrompt,
+		ResultSequence: searchResultSequence,
 	}
 
 	// Use defaults if not specified
@@ -108,6 +126,12 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 	if opts.Language == "" {
 		opts.Language = cfg.WebSearch.Language
+	}
+	if opts.SearchEngine == "" {
+		opts.SearchEngine = cfg.WebSearch.SearchEngine
+	}
+	if opts.ContentSize == "" {
+		opts.ContentSize = cfg.WebSearch.ContentSize
 	}
 
 	// Create client using factory with custom timeout

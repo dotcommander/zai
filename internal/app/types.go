@@ -20,7 +20,7 @@ func (e *APIError) Error() string {
 type ChatRequest struct {
 	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
-	Stream      bool      `json:"stream"` // Reserved for future streaming API support
+	Stream      bool      `json:"stream"`
 	Temperature float64   `json:"temperature,omitempty"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	TopP        float64   `json:"top_p,omitempty"`
@@ -183,13 +183,18 @@ type ChatOptions struct {
 
 // WebSearchRequest represents a web search API request.
 type WebSearchRequest struct {
-	SearchEngine        string  `json:"search_engine"` // "search-prime"
+	SearchEngine        string  `json:"search_engine"` // "search_std", "search_pro", "search_pro_sogou", "search_pro_quark"
 	SearchQuery         string  `json:"search_query"`
 	Count               *int    `json:"count,omitempty"` // 1-50, default 10
 	SearchDomainFilter  *string `json:"search_domain_filter,omitempty"`
 	SearchRecencyFilter *string `json:"search_recency_filter,omitempty"` // oneDay/oneWeek/oneMonth/oneYear/noLimit
 	RequestID           *string `json:"request_id,omitempty"`
 	UserID              *string `json:"user_id,omitempty"`
+	ContentSize         string  `json:"content_size,omitempty"`    // "medium" or "high"
+	SearchResult        *bool   `json:"search_result,omitempty"`   // return detailed sources
+	RequireSearch       *bool   `json:"require_search,omitempty"`  // force search-based response
+	SearchPrompt        string  `json:"search_prompt,omitempty"`   // custom prompt for processing search results
+	ResultSequence      string  `json:"result_sequence,omitempty"` // "before" or "after"
 }
 
 // SearchResult represents a single search result.
@@ -212,12 +217,18 @@ type WebSearchResponse struct {
 
 // SearchOptions configures search requests.
 type SearchOptions struct {
-	Count         int    // Number of results (1-50)
-	DomainFilter  string // Limit to specific domain
-	RecencyFilter string // Time filter: oneDay, oneWeek, oneMonth, oneYear, noLimit
-	Language      string // Search language (e.g., "en", "zh"). Defaults to config value.
-	RequestID     string // Unique request ID
-	UserID        string // User ID for analytics
+	Count          int
+	DomainFilter   string
+	RecencyFilter  string
+	Language       string
+	RequestID      string
+	UserID         string
+	SearchEngine   string // "search_std", "search_pro", "search_pro_sogou", "search_pro_quark"
+	ContentSize    string // "medium" or "high"
+	SearchResult   bool   // return detailed sources
+	RequireSearch  bool   // force search-based response
+	SearchPrompt   string // custom prompt for processing search results
+	ResultSequence string // "before" or "after"
 }
 
 // SearchOutputFormat represents the output format for search results.
@@ -225,11 +236,11 @@ type SearchOutputFormat string
 
 const (
 	// SearchOutputTable displays results in a formatted table.
-	SearchOutputTable    SearchOutputFormat = "table"
+	SearchOutputTable SearchOutputFormat = "table"
 	// SearchOutputDetailed displays results with full details.
 	SearchOutputDetailed SearchOutputFormat = "detailed"
 	// SearchOutputJSON outputs results as JSON.
-	SearchOutputJSON     SearchOutputFormat = "json"
+	SearchOutputJSON SearchOutputFormat = "json"
 )
 
 // SearchCacheEntry represents a cached search result.
@@ -252,7 +263,7 @@ type RetryConfig struct {
 type VisionRequest struct {
 	Model       string          `json:"model"`
 	Messages    []VisionMessage `json:"messages"`
-	Stream      bool            `json:"stream"` // Reserved for future streaming API support
+	Stream      bool            `json:"stream"`
 	Temperature float64         `json:"temperature,omitempty"`
 	MaxTokens   int             `json:"max_tokens,omitempty"`
 	TopP        float64         `json:"top_p,omitempty"`
@@ -373,4 +384,55 @@ type VideoOptions struct {
 	ImageURLs []string // First/last frame images
 	UserID    string   // User ID for analytics
 	RequestID string   // Unique request ID
+}
+
+// TTSSpeechRequest represents a text-to-speech API request.
+type TTSSpeechRequest struct {
+	Model          string `json:"model"`
+	Input          string `json:"input"`
+	Voice          string `json:"voice"`
+	Speed          *int   `json:"speed,omitempty"`
+	Volume         *int   `json:"volume,omitempty"`
+	ResponseFormat string `json:"response_format,omitempty"`
+}
+
+// TTSOptions configures text-to-speech requests.
+type TTSOptions struct {
+	Model          string
+	Voice          string
+	Speed          *int
+	Volume         *int
+	ResponseFormat string
+}
+
+// EmbeddingRequest represents an embedding API request.
+type EmbeddingRequest struct {
+	Model string   `json:"model"`
+	Input []string `json:"input"`
+}
+
+// EmbeddingData represents a single embedding result.
+type EmbeddingData struct {
+	Object    string    `json:"object"`
+	Embedding []float64 `json:"embedding"`
+	Index     int       `json:"index"`
+}
+
+// EmbeddingResponse represents the embedding API response.
+type EmbeddingResponse struct {
+	Object string          `json:"object"`
+	Data   []EmbeddingData `json:"data"`
+	Model  string          `json:"model"`
+	Usage  EmbeddingUsage  `json:"usage"`
+}
+
+// EmbeddingUsage represents token usage for embeddings.
+type EmbeddingUsage struct {
+	PromptTokens int `json:"prompt_tokens"`
+	TotalTokens  int `json:"total_tokens"`
+}
+
+// EmbeddingOptions configures embedding requests.
+type EmbeddingOptions struct {
+	Model string
 }

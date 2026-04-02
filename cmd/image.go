@@ -54,7 +54,7 @@ var imageListCmd = &cobra.Command{
 func registerImageCmd() {
 	// Main image command
 	imageCmd.Flags().StringVarP(&imageQuality, "quality", "q", "hd", "Image quality: hd or standard (default: hd)")
-	imageCmd.Flags().StringVarP(&imageSize, "size", "s", "1024x1024", "Image size: 1024x1024, 1024x768, 768x1024, or 512x512 (default: 1024x1024)")
+	imageCmd.Flags().StringVarP(&imageSize, "size", "s", "1024x1024", "Image size (default: 1024x1024)")
 	imageCmd.Flags().StringVarP(&imageOutput, "output", "o", "", "Save image to file path")
 	imageCmd.Flags().BoolVarP(&imageShow, "show", "S", false, "Open image with default viewer after generation")
 	imageCmd.Flags().BoolVarP(&imageCopy, "copy", "c", false, "Copy image to clipboard (macOS, Linux, Windows)")
@@ -170,7 +170,7 @@ func buildImageOptions() app.ImageOptions {
 
 	// Use configured model if not overridden
 	if opts.Model == "" {
-		opts.Model = getModelWithDefault("api.image_model", "glm-image")
+		opts.Model = getModelWithDefault("api.image_model", "cogview-4-250304")
 	}
 
 	return opts
@@ -351,7 +351,7 @@ func runImageModelList() error {
 	// Show the image generation model specifically
 	imageModel := viper.GetString("api.image_model")
 	if imageModel == "" {
-		imageModel = "glm-image"
+		imageModel = "cogview-4-250304"
 	}
 
 	fmt.Printf("  %s  (image generation)\n", imageModel)

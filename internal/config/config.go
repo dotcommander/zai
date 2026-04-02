@@ -14,6 +14,7 @@ type Config struct {
 	API       APIConfig       `mapstructure:"api"`
 	WebReader WebReaderConfig `mapstructure:"web_reader"`
 	WebSearch WebSearchConfig `mapstructure:"web_search"`
+	TTS       TTSConfig       `mapstructure:"tts"`
 }
 
 // APIConfig holds API connection settings.
@@ -25,6 +26,10 @@ type APIConfig struct {
 	Model          string               `mapstructure:"model"`
 	ImageModel     string               `mapstructure:"image_model"`
 	VideoModel     string               `mapstructure:"video_model"`
+	VisionModel    string               `mapstructure:"vision_model"`
+	AudioModel     string               `mapstructure:"audio_model"`
+	TTSModel       string               `mapstructure:"tts_model"`
+	EmbeddingModel string               `mapstructure:"embedding_model"`
 	RateLimit      RateLimitConfig      `mapstructure:"rate_limit"`
 	Retry          RetryConfig          `mapstructure:"retry"`
 	CircuitBreaker CircuitBreakerConfig `mapstructure:"circuit_breaker"`
@@ -71,6 +76,14 @@ type WebSearchConfig struct {
 	CacheEnabled   bool          `mapstructure:"cache_enabled"`
 	CacheDir       string        `mapstructure:"cache_dir"`
 	CacheTTL       time.Duration `mapstructure:"cache_ttl"`
+	SearchEngine   string        `mapstructure:"search_engine"`
+	ContentSize    string        `mapstructure:"content_size"`
+}
+
+// TTSConfig holds text-to-speech settings.
+type TTSConfig struct {
+	Voice          string `mapstructure:"voice"`
+	ResponseFormat string `mapstructure:"response_format"`
 }
 
 // Load unmarshals viper config into struct
@@ -88,8 +101,12 @@ func SetDefaults() {
 	viper.SetDefault("api.coding_base_url", "https://api.z.ai/api/coding/paas/v4")
 	viper.SetDefault("api.coding_plan", false)
 	viper.SetDefault("api.model", "glm-4.7")
-	viper.SetDefault("api.image_model", "glm-image")
+	viper.SetDefault("api.image_model", "cogview-4-250304")
 	viper.SetDefault("api.video_model", "cogvideox-3")
+	viper.SetDefault("api.vision_model", "glm-4.6v")
+	viper.SetDefault("api.audio_model", "glm-asr-2512")
+	viper.SetDefault("api.tts_model", "glm-tts")
+	viper.SetDefault("api.embedding_model", "embedding-3")
 
 	// Rate limit defaults
 	viper.SetDefault("api.rate_limit.requests_per_second", 10)
@@ -127,4 +144,10 @@ func SetDefaults() {
 	viper.SetDefault("web_search.cache_enabled", true)
 	viper.SetDefault("web_search.cache_dir", filepath.Join(home, ".config", "zai", "search_cache"))
 	viper.SetDefault("web_search.cache_ttl", "24h")
+	viper.SetDefault("web_search.search_engine", "search_std")
+	viper.SetDefault("web_search.content_size", "medium")
+
+	// TTS defaults
+	viper.SetDefault("tts.voice", "tongtong")
+	viper.SetDefault("tts.response_format", "wav")
 }

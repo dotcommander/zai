@@ -73,7 +73,7 @@ func registerAudioCmd() {
 	rootCmd.AddCommand(audioCmd)
 
 	audioCmd.Flags().StringVarP(&audioFile, "file", "f", "", "Audio file path")
-	audioCmd.Flags().StringVarP(&audioModel, "model", "m", "glm-asr-2512", "ASR model to use")
+	audioCmd.Flags().StringVarP(&audioModel, "model", "m", "", "ASR model to use (default: config api.audio_model)")
 	audioCmd.Flags().StringVarP(&audioPrompt, "prompt", "p", "", "Context from prior transcriptions (max 8000 chars)")
 	audioCmd.Flags().StringVarP(&audioLanguage, "language", "l", "", "Language code (e.g., en, zh, ja)")
 	audioCmd.Flags().StringVar(&audioHotwords, "hotwords", "", "Comma-separated domain vocabulary (max 100 items)")
@@ -277,8 +277,12 @@ func performRegularTranscription(ctx context.Context, audioPath string) error {
 
 // buildTranscriptionOptions builds the transcription options from command flags.
 func buildTranscriptionOptions() app.TranscriptionOptions {
+	model := audioModel
+	if model == "" {
+		model = getModelWithDefault("api.audio_model", "glm-asr-2512")
+	}
 	opts := app.TranscriptionOptions{
-		Model:    audioModel,
+		Model:    model,
 		Prompt:   audioPrompt,
 		Stream:   audioStream,
 		UserID:   audioUserID,
@@ -501,7 +505,7 @@ func transcribeParallel(ctx context.Context, client *app.Client, chunks []string
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			opts := app.TranscriptionOptions{Model: audioModel, Prompt: audioPrompt}
+			opts := app.TranscriptionOptions{Model: getModelWithDefault("api.audio_model", "glm-asr-2512"), Prompt: audioPrompt}
 
 			for idx := range jobs {
 				var resp *app.TranscriptionResponse

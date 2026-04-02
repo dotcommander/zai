@@ -21,8 +21,8 @@ var (
 
 var visionCmd = &cobra.Command{
 	Use:   "vision [prompt]",
-	Short: "Analyze images with AI vision (glm-4.6v)",
-	Long: `Analyze images using Z.AI's GLM-4.6V vision model.
+	Short: "Analyze images with AI vision",
+	Long: `Analyze images using Z.AI's vision models (glm-4v-plus-0111, glm-4.6v, glm-4v-flash).
 
 Supports local files and HTTP/HTTPS URLs via -f flag.
 
@@ -91,7 +91,7 @@ func encodeLocalImage(imagePath string, fileReader fileutil.FileReader) (string,
 func registerVisionCmd() {
 	visionCmd.Flags().StringVarP(&visionFile, "file", "f", "", "Image file path or URL (required)")
 	visionCmd.Flags().StringVarP(&visionPrompt, "prompt", "p", "", "Analysis prompt (default: describe the image)")
-	visionCmd.Flags().StringVarP(&visionModel, "model", "m", "", "Override vision model (default: glm-4.6v)")
+	visionCmd.Flags().StringVarP(&visionModel, "model", "m", "", "Override vision model (default: config api.vision_model)")
 	visionCmd.Flags().Float64VarP(&visionTemp, "temperature", "t", 0.3, "Temperature (0.0-1.0, default: 0.3)")
 
 	// Register with root

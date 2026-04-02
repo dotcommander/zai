@@ -214,3 +214,25 @@ func NewAudioHistoryEntry(text string, model string) HistoryEntry {
 		Type:      "audio",
 	}
 }
+
+// NewTTSHistoryEntry creates a history entry for text-to-speech.
+func NewTTSHistoryEntry(text string, voice string, model string) HistoryEntry {
+	return HistoryEntry{
+		Timestamp: time.Now(),
+		Prompt:    text,
+		Response:  fmt.Sprintf("TTS generated with voice: %s", voice),
+		Model:     model,
+		Type:      "tts",
+	}
+}
+
+// NewEmbeddingHistoryEntry creates a history entry for embedding generation.
+func NewEmbeddingHistoryEntry(text string, model string, dimensions int) HistoryEntry {
+	return HistoryEntry{
+		Timestamp: time.Now(),
+		Prompt:    text,
+		Response:  fmt.Sprintf("Embedding generated: %d dimensions", dimensions),
+		Model:     model,
+		Type:      "embedding",
+	}
+}

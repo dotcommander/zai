@@ -154,11 +154,13 @@ func Execute() {
 	registerRootCmd()
 	registerAudioCmd()
 	registerChatCmd()
+	registerEmbedCmd()
 	registerHistoryCmd()
 	registerImageCmd()
 	registerModelCmd()
 	registerReaderCmd()
 	registerSearchCmd()
+	registerTTSCmd()
 	registerVersionCmd()
 	registerVideoCmd()
 	registerVisionCmd()
@@ -273,6 +275,8 @@ func styledHelp(cmd *cobra.Command, args []string) {
 		{"image", "Generate images with AI enhancement"},
 		{"vision", "Analyze images with AI vision"},
 		{"audio", "Transcribe audio to text"},
+		{"tts", "Convert text to speech"},
+		{"embed", "Generate text embeddings"},
 		{"video", "Generate videos with AI"},
 		{"history", "View chat history"},
 		{"model", "Model management"},
@@ -380,14 +384,19 @@ func buildClientConfig() app.ClientConfig {
 	useCoding := viper.GetBool("coding") || viper.GetBool("api.coding_plan")
 
 	return app.ClientConfig{
-		APIKey:        viper.GetString("api.key"),
-		BaseURL:       baseURL,
-		CodingBaseURL: codingBaseURL,
-		UseCoding:     useCoding,
-		Model:         viper.GetString("api.model"),
-		Verbose:       viper.GetBool("verbose"),
-		RateLimit:     rateLimitCfg,
-		RetryConfig:   retryCfg,
+		APIKey:         viper.GetString("api.key"),
+		BaseURL:        baseURL,
+		CodingBaseURL:  codingBaseURL,
+		UseCoding:      useCoding,
+		Model:          viper.GetString("api.model"),
+		ImageModel:     viper.GetString("api.image_model"),
+		VisionModel:    viper.GetString("api.vision_model"),
+		AudioModel:     viper.GetString("api.audio_model"),
+		TTSModel:       viper.GetString("api.tts_model"),
+		EmbeddingModel: viper.GetString("api.embedding_model"),
+		Verbose:        viper.GetBool("verbose"),
+		RateLimit:      rateLimitCfg,
+		RetryConfig:    retryCfg,
 	}
 }
 

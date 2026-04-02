@@ -40,8 +40,12 @@ api:
   coding_base_url: "https://api.z.ai/api/coding/paas/v4"
   coding_plan: false
   model: "glm-4.7"
-  image_model: "glm-image"
+  image_model: "cogview-4-250304"
   video_model: "cogvideox-3"
+  vision_model: "glm-4.6v"
+  audio_model: "glm-asr-2512"
+  tts_model: "glm-tts"
+  embedding_model: "embedding-3"
   rate_limit:
     requests_per_second: 10
     burst: 5
@@ -72,6 +76,12 @@ web_search:
   cache_enabled: true
   cache_dir: "~/.config/zai/search_cache"
   cache_ttl: 24h
+  search_engine: "search_std"
+  content_size: "medium"
+
+tts:
+  voice: "tongtong"
+  response_format: "wav"
 ```
 
 Environment: `ZAI_API_KEY` overrides config file.
@@ -89,6 +99,7 @@ zai chat --think            # Enable reasoning mode
 ```bash
 zai search "query"              # Web search
 zai search "query" -c 5 -r oneWeek -d github.com  # With filters
+zai search "query" --engine search_pro --content-size high --sources  # Enhanced search
 zai chat --search               # Enable search-augmented chat
 ```
 
@@ -105,9 +116,10 @@ zai "Summarize https://example.com"        # Auto-fetch URLs in prompts
 ```bash
 zai image "wizard"              # AI-enhanced prompt + auto-download
 zai image "sunset" -s 1024x768 --no-enhance -o output.png
+zai image "landscape" -s 768x1344  # CogView-4 tall size
 ```
 
-Auto-downloads to `zai-image-{timestamp}.png`. AI enhancement transforms prompts with lighting/composition/style.
+Auto-downloads to `zai-image-{timestamp}.png`. Uses CogView-4 by default. AI enhancement transforms prompts with lighting/composition/style.
 
 ### Vision
 ```bash
@@ -134,6 +146,24 @@ zai video "prompt" --quality quality --size 1920x1080 --show
 
 Auto-downloads to `zai-video-{timestamp}.mp4`. Async polling (1-3 min). Pricing: ~$0.2/video.
 
+### TTS
+```bash
+zai tts "Hello, world!"                    # Text-to-speech (default voice: tongtong)
+zai tts "Welcome" --voice xiaochen         # Different voice
+echo "text" | zai tts --output out.wav     # From stdin
+```
+
+Voices: tongtong (default), xiaochen, chuichui, jam, kazi, douji, luodo. Saves to `zai-tts-{timestamp}.wav`.
+
+### Embed
+```bash
+zai embed "Hello, world!"                  # Single embedding (JSON output)
+zai embed "sentence one" "sentence two"    # Multiple embeddings
+echo "text" | zai embed                    # From stdin
+```
+
+Always outputs JSON (embedding vectors are numeric arrays). Uses Embedding-3 model.
+
 ## Architecture
 
 ```
@@ -141,11 +171,13 @@ cmd/
   root.go     # Main command, stdin handling, one-shot mode
   chat.go     # Interactive REPL with conversation context
   history.go  # History viewing
-  search.go   # Web search
+  search.go   # Web search (enhanced: engine, content-size, sources)
   web.go      # Web reader (reader subcommand)
-  image.go    # Image generation
+  image.go    # Image generation (CogView-4)
   vision.go   # Vision analysis
   audio.go    # Audio transcription
+  tts.go      # Text-to-speech (GLM-TTS)
+  embed.go    # Text embeddings (Embedding-3)
   video.go    # Video generation
   model.go    # Model management
 internal/
@@ -170,7 +202,7 @@ internal/
 - **History**: JSONL at `~/.config/zai/history.jsonl`
 - **Context**: REPL keeps last 20 messages (10 exchanges)
 - **Web Content**: Auto-detects URLs, fetches via `/paas/v4/reader` API, wraps in `<web_content>` XML tags
-- **Web Search**: `/paas/v4/web_search` API with SHA256-keyed file cache
+- **Web Search**: `/paas/v4/web_search` API with SHA256-keyed file cache. Supports `search_std`, `search_pro`, `search_pro_sogou`, `search_pro_quark` engines. Configurable content size, source details, and result ordering
 - **Search Augmentation**: `--search` flag prepends `<web_search_results>` context
 - **File flag URLs**: `-f` detects http/https and routes to web reader
 - **Image Enhancement**: LLM transforms prompts using professional image engineering framework
