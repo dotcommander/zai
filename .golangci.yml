@@ -1,158 +1,159 @@
-linters:
-  disable-all: true
+version: "2"
+
+formatters:
   enable:
     - gofmt
     - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/dotcommander/zai
+
+linters:
+  disable-all: true
+  enable:
     - ineffassign
     - staticcheck
     - unused
     - govet
     - misspell
     - depguard
-    # Correctness (go-lint-pack: Always Enabled)
     - errcheck
-    # Security (go-lint-pack: Always Enabled)
     - gosec
-    # Strict (go-lint-pack: Always Enabled)
     - gocritic
     - gocyclo
     - dupl
-    # LLM-Friendly Clean Code (go-lint-pack: Always Enabled)
     - gocognit
     - funlen
     - nestif
     - goconst
     - revive
 
-linters-settings:
-  goimports:
-    local-prefixes: github.com/dotcommander/zai
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
 
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment # Micro-optimization, not worth the churn
-      - shadow # Common pattern with err
+    gocyclo:
+      min-complexity: 15
 
-  gocyclo:
-    min-complexity: 15
+    gocognit:
+      min-complexity: 20
 
-  gocognit:
-    min-complexity: 20
+    funlen:
+      lines: 80
+      statements: 50
 
-  funlen:
-    lines: 80
-    statements: 50
+    nestif:
+      min-complexity: 4
 
-  nestif:
-    min-complexity: 4
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+      ignore-tests: true
 
-  goconst:
-    min-len: 3
-    min-occurrences: 3
-    ignore-tests: true
+    dupl:
+      threshold: 100
 
-  dupl:
-    threshold: 100
+    gosec:
+      excludes:
+        - G104
+        - G304
+        - G301
 
-  gosec:
-    excludes:
-      - G104 # Deferred .Close() on read-only file
-      - G304 # Validated path variables
-      - G301 # Directory permissions
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: var-naming
+        - name: empty-block
+        - name: unnecessary-stmt
+        - name: confusing-naming
+        - name: confusing-results
 
-  revive:
-    rules:
-      - name: exported
-        disabled: true # Too noisy initially
-      - name: unexported-return
-      - name: indent-error-flow
-      - name: var-naming
-      - name: empty-block
-      - name: unnecessary-stmt
-      - name: confusing-naming
-      - name: confusing-results
+    depguard:
+      rules:
+        banned-routers:
+          deny:
+            - pkg: github.com/gin-gonic/gin
+              desc: "Use github.com/go-chi/chi/v5 instead"
+            - pkg: github.com/gorilla/mux
+              desc: "Use github.com/go-chi/chi/v5 instead"
 
-  depguard:
-    rules:
-      banned-routers:
-        deny:
-          - pkg: github.com/gin-gonic/gin
-            desc: "Use github.com/go-chi/chi/v5 instead"
-          - pkg: github.com/gorilla/mux
-            desc: "Use github.com/go-chi/chi/v5 instead"
+        banned-logging:
+          deny:
+            - pkg: github.com/rs/zerolog
+              desc: "Use log/slog (standard library) instead"
+            - pkg: github.com/sirupsen/logrus
+              desc: "Use log/slog (standard library) instead"
 
-      banned-logging:
-        deny:
-          - pkg: github.com/rs/zerolog
-            desc: "Use log/slog (standard library) instead"
-          - pkg: github.com/sirupsen/logrus
-            desc: "Use log/slog (standard library) instead"
+        banned-llm:
+          deny:
+            - pkg: github.com/sashabaranov/go-openai
+              desc: "Use github.com/openai/openai-go (v3+) instead"
 
-      banned-llm:
-        deny:
-          - pkg: github.com/sashabaranov/go-openai
-            desc: "Use github.com/openai/openai-go (v3+) instead"
+        banned-config:
+          deny:
+            - pkg: github.com/knadh/koanf
+              desc: "Use github.com/spf13/viper instead"
+            - pkg: github.com/joho/godotenv
+              desc: "Use github.com/spf13/viper for env loading instead"
+            - pkg: github.com/kelseyhightower/envconfig
+              desc: "Use github.com/spf13/viper instead"
+            - pkg: github.com/caarlos0/env
+              desc: "Use github.com/spf13/viper instead"
 
-      banned-config:
-        deny:
-          - pkg: github.com/knadh/koanf
-            desc: "Use github.com/spf13/viper instead"
-          - pkg: github.com/joho/godotenv
-            desc: "Use github.com/spf13/viper for env loading instead"
-          - pkg: github.com/kelseyhightower/envconfig
-            desc: "Use github.com/spf13/viper instead"
-          - pkg: github.com/caarlos0/env
-            desc: "Use github.com/spf13/viper instead"
+        banned-http:
+          deny:
+            - pkg: github.com/go-resty/resty
+              desc: "Use github.com/hashicorp/go-retryablehttp instead"
 
-      banned-http:
-        deny:
-          - pkg: github.com/go-resty/resty
-            desc: "Use github.com/hashicorp/go-retryablehttp instead"
+        banned-validation:
+          deny:
+            - pkg: github.com/asaskevich/govalidator
+              desc: "Use github.com/go-playground/validator/v10 instead"
 
-      banned-validation:
-        deny:
-          - pkg: github.com/asaskevich/govalidator
-            desc: "Use github.com/go-playground/validator/v10 instead"
+        banned-templates:
+          deny:
+            - pkg: github.com/flosch/pongo2
+              desc: "Use github.com/a-h/templ instead"
+            - pkg: github.com/CloudyKit/jet
+              desc: "Use github.com/a-h/templ instead"
 
-      banned-templates:
-        deny:
-          - pkg: github.com/flosch/pongo2
-            desc: "Use github.com/a-h/templ instead"
-          - pkg: github.com/CloudyKit/jet
-            desc: "Use github.com/a-h/templ instead"
+        banned-testing:
+          deny:
+            - pkg: gopkg.in/check.v1
+              desc: "Use github.com/stretchr/testify instead"
+            - pkg: github.com/smartystreets/goconvey
+              desc: "Use github.com/stretchr/testify instead"
+            - pkg: github.com/onsi/ginkgo
+              desc: "Use github.com/stretchr/testify instead"
 
-      banned-testing:
-        deny:
-          - pkg: gopkg.in/check.v1
-            desc: "Use github.com/stretchr/testify instead"
-          - pkg: github.com/smartystreets/goconvey
-            desc: "Use github.com/stretchr/testify instead"
-          - pkg: github.com/onsi/ginkgo
-            desc: "Use github.com/stretchr/testify instead"
+        banned-errors:
+          deny:
+            - pkg: github.com/pkg/errors
+              desc: "Use fmt.Errorf with %w for error wrapping instead"
 
-      banned-errors:
-        deny:
-          - pkg: github.com/pkg/errors
-            desc: "Use fmt.Errorf with %w for error wrapping instead"
+        banned-yaml:
+          deny:
+            - pkg: gopkg.in/yaml.v2
+              desc: "Use gopkg.in/yaml.v3 instead"
 
-      banned-yaml:
-        deny:
-          - pkg: gopkg.in/yaml.v2
-            desc: "Use gopkg.in/yaml.v3 instead"
-
-      banned-sqlite:
-        deny:
-          - pkg: github.com/mattn/go-sqlite3
-            desc: "Use modernc.org/sqlite (pure Go, no CGO) instead"
+        banned-sqlite:
+          deny:
+            - pkg: github.com/mattn/go-sqlite3
+              desc: "Use modernc.org/sqlite (pure Go, no CGO) instead"
 
 run:
   timeout: 5m
-  tests: true
   build-tags: []
 
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
   exclude-rules:
@@ -164,4 +165,4 @@ issues:
         - gocognit
     - path: cmd/
       linters:
-        - funlen # CLI commands naturally long
+        - funlen
