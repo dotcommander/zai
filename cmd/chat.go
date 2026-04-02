@@ -158,7 +158,7 @@ func runChatREPL() error { //nolint:gocognit,gocyclo,revive,funlen // REPL loop 
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
-			inputCh <- strings.TrimSpace(scanner.Text())
+			inputCh <- strings.TrimSpace(stripANSI(scanner.Text()))
 		}
 		if err := scanner.Err(); err != nil {
 			inputErrCh <- err
@@ -542,8 +542,7 @@ func parseSearchCommand(input string) (query string, opts app.SearchOptions) {
 	}
 
 	// Parse flags
-	flagRegex := regexp.MustCompile(`-(\w+)\s*(\S+)`)
-	matches := flagRegex.FindAllStringSubmatch(input, -1)
+	matches := searchFlagRE.FindAllStringSubmatch(input, -1)
 
 	// Remove flags from query
 	cleanQuery := input
@@ -620,11 +619,19 @@ func printContextStyled(ctx []app.Message) {
 	fmt.Println()
 }
 
+// ansiEscapeRE matches ANSI escape sequences (CSI, OSC, single-char) that
+// terminal queries (cursor position, background color) can leak into stdin.
+var ansiEscapeRE = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[a-zA-Z]|\][^\x07]*\x07|[()][AB012]|[a-zA-Z])`)
+
+// searchFlagRE matches flag/value pairs like "-c 5" or "-r oneWeek" in search commands.
+var searchFlagRE = regexp.MustCompile(`-(\w+)\s*(\S+)`)
+
+func stripANSI(s string) string {
+	return ansiEscapeRE.ReplaceAllString(s, "")
+}
+
 func truncate(s string, maxLen int) string {
-	// Remove newlines for display
-	if strings.Contains(s, "\n") {
-		s = strings.ReplaceAll(s, "\n", " ")
-	}
+	s = strings.ReplaceAll(s, "\n", " ")
 	r := []rune(s)
 	if len(r) <= maxLen {
 		return s

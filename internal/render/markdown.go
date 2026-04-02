@@ -11,7 +11,7 @@ import (
 
 // MarkdownStream renders streaming markdown progressively in a terminal.
 // Accumulates tokens and re-renders with glamour when content changes
-// meaningfully (newline or 100+ bytes of growth). Uses ANSI escape codes
+// meaningfully (newline or 40+ bytes of growth). Uses ANSI escape codes
 // to overwrite previous output between renders.
 type MarkdownStream struct {
 	buf            strings.Builder
@@ -64,7 +64,10 @@ func (ms *MarkdownStream) Token(token string) string {
 	ms.lastNL += strings.Count(token, "\n")
 	newLen := ms.buf.Len()
 
-	if ms.lastNL > ms.lastRenderedNL || newLen-ms.lastLen > 100 {
+	// Render immediately on first content (eliminates pause after AI> label),
+	// then on each newline or every ~40 bytes of growth for responsive streaming.
+	firstContent := ms.lastLen == 0 && newLen > 0
+	if firstContent || ms.lastNL > ms.lastRenderedNL || newLen-ms.lastLen >= 40 {
 		ms.rerender(ms.buf.String())
 		ms.lastLen = newLen
 		ms.lastRenderedNL = ms.lastNL
