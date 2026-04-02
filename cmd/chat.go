@@ -15,8 +15,6 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -298,12 +296,20 @@ func isWebCommand(input string) bool {
 	return strings.HasPrefix(input, "/web ") || strings.HasPrefix(input, "web ")
 }
 
+// stripCommandPrefix removes the leading "/cmd " or "cmd " prefix from input.
+func stripCommandPrefix(input, cmd string) string {
+	if after, ok := strings.CutPrefix(input, "/"+cmd+" "); ok {
+		return after
+	}
+	if after, ok := strings.CutPrefix(input, cmd+" "); ok {
+		return after
+	}
+	return input
+}
+
 // handleSearchCommand processes search commands and displays results.
 func handleSearchCommand(ctx context.Context, sess *chatSession, input string) error {
-	query := strings.TrimSpace(input[len("/search "):])
-	if strings.HasPrefix(input, "search ") {
-		query = strings.TrimSpace(input[len("search "):])
-	}
+	query := strings.TrimSpace(stripCommandPrefix(input, "search"))
 
 	// Parse search options
 	query, opts := parseSearchCommand(query)
@@ -353,9 +359,7 @@ func handleSearchCommand(ctx context.Context, sess *chatSession, input string) e
 		app.Message{Role: "user", Content: fmt.Sprintf("Search: %s", query)},
 		app.Message{Role: "assistant", Content: searchFormatted},
 	)
-	if len(sess.context) > 20 {
-		sess.context = sess.context[2:]
-	}
+	sess.trimContext()
 
 	sess.history = append(sess.history, input)
 	return nil
@@ -363,10 +367,7 @@ func handleSearchCommand(ctx context.Context, sess *chatSession, input string) e
 
 // handleWebCommand processes web commands and displays fetched content.
 func handleWebCommand(ctx context.Context, sess *chatSession, input string) error {
-	url := strings.TrimSpace(input[len("/web "):])
-	if strings.HasPrefix(input, "web ") {
-		url = strings.TrimSpace(input[len("web "):])
-	}
+	url := strings.TrimSpace(stripCommandPrefix(input, "web"))
 
 	if url == "" {
 		fmt.Println(theme.ErrorText.Render("  Usage: /web <url>"))
@@ -413,9 +414,7 @@ func handleWebCommand(ctx context.Context, sess *chatSession, input string) erro
 		app.Message{Role: "user", Content: userMsg},
 		app.Message{Role: "assistant", Content: formattedContent},
 	)
-	if len(sess.context) > 20 {
-		sess.context = sess.context[2:]
-	}
+	sess.trimContext()
 
 	sess.history = append(sess.history, input)
 	return nil
@@ -440,10 +439,7 @@ func handleRegularChat(ctx context.Context, sess *chatSession, baseOpts app.Chat
 		return sendChatMessage(ctx, sess, input, opts)
 	}
 
-	// Run search and chat in parallel using errgroup
-	g, ctx := errgroup.WithContext(ctx)
-
-	// Channel for search results and error
+	// Channel for search results
 	type searchResult struct {
 		results *app.WebSearchResponse
 		err     error
@@ -451,7 +447,7 @@ func handleRegularChat(ctx context.Context, sess *chatSession, baseOpts app.Chat
 	searchChan := make(chan searchResult, 1)
 
 	// Start search in goroutine
-	g.Go(func() error {
+	go func() {
 		searchOpts := app.SearchOptions{
 			Count:         5,
 			RecencyFilter: "oneWeek",
@@ -459,8 +455,7 @@ func handleRegularChat(ctx context.Context, sess *chatSession, baseOpts app.Chat
 		}
 		results, err := sess.client.SearchWeb(ctx, input, searchOpts)
 		searchChan <- searchResult{results: results, err: err}
-		return nil
-	})
+	}()
 
 	// Wait for search to complete or context to be cancelled
 	var searchContext string
@@ -522,11 +517,16 @@ func sendChatMessage(ctx context.Context, sess *chatSession, messageToSend strin
 		app.Message{Role: "user", Content: messageToSend},
 		app.Message{Role: "assistant", Content: response},
 	)
-	if len(sess.context) > 20 {
-		sess.context = sess.context[2:]
-	}
+	sess.trimContext()
 
 	return nil
+}
+
+// trimContext keeps conversation context within the last 10 exchanges (20 messages).
+func (s *chatSession) trimContext() {
+	if len(s.context) > 20 {
+		s.context = s.context[2:]
+	}
 }
 
 func parseSearchCommand(input string) (query string, opts app.SearchOptions) {
@@ -621,8 +621,9 @@ func truncate(s string, maxLen int) string {
 	if strings.Contains(s, "\n") {
 		s = strings.ReplaceAll(s, "\n", " ")
 	}
-	if len(s) <= maxLen {
+	r := []rune(s)
+	if len(r) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	return string(r[:maxLen-3]) + "..."
 }

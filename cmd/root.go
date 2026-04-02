@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/dotcommander/zai/internal/app"
+	"github.com/dotcommander/zai/internal/config"
 	"github.com/dotcommander/zai/internal/version"
 )
 
@@ -383,6 +384,14 @@ func buildClientConfig() app.ClientConfig {
 	codingBaseURL := viper.GetString("api.coding_base_url")
 	useCoding := viper.GetBool("coding") || viper.GetBool("api.coding_plan")
 
+	// Load circuit breaker config from viper
+	cbCfg := config.CircuitBreakerConfig{
+		Enabled:          viper.GetBool("api.circuit_breaker.enabled"),
+		FailureThreshold: viper.GetInt("api.circuit_breaker.failure_threshold"),
+		SuccessThreshold: viper.GetInt("api.circuit_breaker.success_threshold"),
+		Timeout:          viper.GetDuration("api.circuit_breaker.timeout"),
+	}
+
 	return app.ClientConfig{
 		APIKey:         viper.GetString("api.key"),
 		BaseURL:        baseURL,
@@ -397,6 +406,7 @@ func buildClientConfig() app.ClientConfig {
 		Verbose:        viper.GetBool("verbose"),
 		RateLimit:      rateLimitCfg,
 		RetryConfig:    retryCfg,
+		CircuitBreaker: cbCfg,
 	}
 }
 
@@ -443,12 +453,6 @@ func readStdin() (string, error) {
 	}
 	dataStr := string(data)
 	return strings.TrimSpace(dataStr), nil
-}
-
-// isTerminal checks if a file descriptor is connected to a terminal.
-func isTerminal(f *os.File) bool {
-	stat, _ := f.Stat()
-	return (stat.Mode() & os.ModeCharDevice) != 0
 }
 
 // resolveSystemPrompt returns file contents if value points to an existing file.
@@ -522,7 +526,7 @@ func runOneShot(prompt string) error {
 
 	// JSON mode: use non-streaming for complete response
 	if cfg.JSONOutput {
-		response, err := callChatAPI(ctx, client, prompt, opts)
+		response, err := client.Chat(ctx, prompt, opts)
 		if err != nil {
 			return fmt.Errorf("failed to get response: %w", err)
 		}
@@ -619,22 +623,25 @@ func augmentWithWebSearch(ctx context.Context, client *app.Client, cfg RunConfig
 	return prompt
 }
 
-// callChatAPI makes the chat API call and returns the response
-func callChatAPI(ctx context.Context, client *app.Client, prompt string, opts app.ChatOptions) (string, error) {
-	return client.Chat(ctx, prompt, opts)
-}
-
 // formatOutput formats and prints the response according to configuration
 func formatOutput(response string, cfg RunConfig, prompt string, opts app.ChatOptions) {
 	if cfg.JSONOutput {
-		output := map[string]interface{}{
-			"prompt":    prompt,
-			"response":  response,
-			"model":     viper.GetString("api.model"),
-			"file":      opts.FilePath,
-			"think":     opts.Think,
-			"search":    cfg.Search,
-			"timestamp": time.Now().Format(time.RFC3339),
+		output := struct {
+			Prompt    string `json:"prompt"`
+			Response  string `json:"response"`
+			Model     string `json:"model"`
+			File      string `json:"file,omitempty"`
+			Think     bool   `json:"think"`
+			Search    bool   `json:"search"`
+			Timestamp string `json:"timestamp"`
+		}{
+			Prompt:    prompt,
+			Response:  response,
+			Model:     viper.GetString("api.model"),
+			File:      opts.FilePath,
+			Think:     opts.Think,
+			Search:    cfg.Search,
+			Timestamp: time.Now().Format(time.RFC3339),
 		}
 
 		data, err := json.MarshalIndent(output, "", "  ")
