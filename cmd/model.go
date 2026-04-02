@@ -1,18 +1,20 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
+	"github.com/dotcommander/zai/internal/app"
 )
 
 var modelCmd = &cobra.Command{
 	Use:   "model <subcommand>",
 	Short: "Model management commands",
-	Long:  `Commands for managing and listing available models.`,
 }
 
 var (
@@ -31,14 +33,18 @@ func registerModelCmd() {
 	rootCmd.AddCommand(modelCmd)
 	modelCmd.AddCommand(modelListCmd)
 
-	// Add JSON flag to model list command
 	modelListCmd.Flags().BoolVar(&modelJSON, "json", false, "Output in JSON format")
+}
+
+// configuredModel represents a model set via config, not discovered from the API.
+type configuredModel struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
 }
 
 func runModelList() error {
 	client := newClient()
 
-	var ctx context.Context
 	ctx, cancel := createContext(30 * time.Second)
 	defer cancel()
 
@@ -47,28 +53,78 @@ func runModelList() error {
 		return fmt.Errorf("failed to list models: %w", err)
 	}
 
-	if modelJSON {
-		// Create structured JSON output
-		output := map[string]interface{}{
-			"models":    models,
-			"count":     len(models),
-			"timestamp": time.Now().Format(time.RFC3339),
-		}
+	configured := collectConfiguredModels()
 
-		data, err := json.MarshalIndent(output, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal JSON: %w", err)
+	if modelJSON {
+		return printModelListJSON(models, configured)
+	}
+	printModelListTable(models, configured)
+	return nil
+}
+
+func collectConfiguredModels() []configuredModel {
+	type entry struct {
+		key, label string
+	}
+	sources := []entry{
+		{"api.image_model", "image"},
+		{"api.video_model", "video"},
+		{"api.vision_model", "vision"},
+		{"api.audio_model", "audio"},
+		{"api.tts_model", "tts"},
+		{"api.embedding_model", "embedding"},
+	}
+
+	seen := make(map[string]bool)
+	var out []configuredModel
+	for _, s := range sources {
+		id := viper.GetString(s.key)
+		if id == "" || seen[id+s.label] {
+			continue
 		}
-		fmt.Println(string(data))
+		seen[id+s.label] = true
+		out = append(out, configuredModel{ID: id, Type: s.label})
+	}
+	return out
+}
+
+func printModelListTable(apiModels []app.Model, configured []configuredModel) {
+	// Chat models from API
+	fmt.Println("Chat Models (from API):")
+	fmt.Println("───────────────────────")
+	if len(apiModels) == 0 {
+		fmt.Println("  (none)")
 	} else {
-		// Display human-readable output
-		fmt.Println("Available Models:")
-		fmt.Println("─────────────────")
-		for _, m := range models {
+		sort.Slice(apiModels, func(i, j int) bool {
+			return apiModels[i].ID < apiModels[j].ID
+		})
+		for _, m := range apiModels {
 			created := time.Unix(m.Created, 0).Format("2006-01-02")
-			fmt.Printf("  %s  (created: %s)\n", m.ID, created)
+			fmt.Printf("  %-28s  %s\n", m.ID, created)
 		}
 	}
 
+	// Configured models by type
+	if len(configured) > 0 {
+		fmt.Println()
+		fmt.Println("Configured Models:")
+		fmt.Println("──────────────────")
+		for _, m := range configured {
+			fmt.Printf("  %-28s  %s\n", m.ID, m.Type)
+		}
+	}
+}
+
+func printModelListJSON(apiModels interface{}, configured []configuredModel) error {
+	output := map[string]interface{}{
+		"chat_models":       apiModels,
+		"configured_models": configured,
+		"timestamp":         time.Now().Format(time.RFC3339),
+	}
+	data, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+	fmt.Println(string(data))
 	return nil
 }
