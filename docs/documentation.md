@@ -16,6 +16,6 @@ Zai is a command-line interface for Z.AI's GLM family of models. It handles chat
 <a name="additional-resources"></a>
 ## Additional Resources
 
-- [API Reference](/docs/API) -- HTTP endpoints, request/response schemas, and error codes
-- [Troubleshooting](/docs/TROUBLESHOOTING) -- common issues and their solutions
-- [Contributing](/docs/CONTRIBUTING) -- development setup, testing, and pull request guidelines
+- [API Reference](/docs/api) -- HTTP endpoints, request/response schemas, and error codes
+- [Troubleshooting](/docs/troubleshooting) -- common issues and their solutions
+- [Contributing](/docs/contributing) -- development setup, testing, and pull request guidelines
