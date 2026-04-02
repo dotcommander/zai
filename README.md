@@ -12,6 +12,9 @@ A fast, feature-rich CLI for [Z.AI](https://z.ai) GLM models.
 - **Image Generation** - AI-enhanced prompts with auto-download
 - **Vision** - Analyze images and extract text
 - **Audio** - Transcribe audio files and YouTube videos
+- **TTS** - Text-to-speech synthesis with multiple voices
+- **Embeddings** - Generate text embedding vectors
+- **Video** - Generate videos from text or images
 - **Pipes** - Full stdin/stdout support for scripting
 
 ## Installation
@@ -99,23 +102,53 @@ Images are automatically enhanced with professional photography prompts and save
 ### Vision
 
 ```bash
-zai vision photo.jpg
-zai vision screenshot.png "What text is here?"
-zai vision chart.png "Explain the trends"
+zai vision -f photo.jpg
+zai vision -f screenshot.png "What text is here?"
+zai vision -f chart.png "Explain the trends"
 ```
 
 ### Audio
 
 ```bash
-zai audio recording.wav
-zai audio podcast.mp3 --vad              # Remove silence
-zai audio --video https://youtu.be/xxx   # YouTube
-zai audio lecture.wav --hotwords "k8s,docker"
+zai audio -f recording.wav
+zai audio -f podcast.mp3 --vad              # Remove silence
+zai audio --video https://youtu.be/xxx      # YouTube
+zai audio -f lecture.wav --hotwords "k8s,docker"
 ```
 
 Supports: .wav, .mp3, .mp4, .m4a, .flac, .aac, .ogg
 
 **Optional dependencies**: `ffmpeg`, `yt-dlp` (for YouTube)
+
+### Text to Speech
+
+```bash
+zai tts "Hello, world!"
+zai tts "Welcome" --voice xiaochen
+echo "text" | zai tts --output out.wav
+```
+
+Voices: tongtong (default), xiaochen, chuichui, jam, kazi, douji, luodo
+
+### Embeddings
+
+```bash
+zai embed "Hello, world!"
+zai embed "sentence one" "sentence two"
+echo "text" | zai embed
+```
+
+Always outputs JSON embedding vectors.
+
+### Video
+
+```bash
+zai video "A cat playing"
+zai video -f img.jpg "Animate this"
+zai video -f first.jpg -f last.jpg "transition"
+```
+
+Videos are saved as `zai-video-{timestamp}.mp4`. Generation takes 1-3 minutes.
 
 ### JSON Output
 
@@ -136,6 +169,8 @@ zai history --json
 | `video` | Generate videos |
 | `vision` | Analyze images |
 | `audio` | Transcribe audio |
+| `tts` | Text-to-speech synthesis |
+| `embed` | Generate text embeddings |
 | `history` | View chat history |
 | `model` | Model management |
 
@@ -148,6 +183,7 @@ zai history --json
 | `--think` | Enable reasoning mode |
 | `-C, --coding` | Use Coding API endpoint |
 | `--json` | Output as JSON |
+| `--system` | Custom system prompt |
 | `-v, --verbose` | Show debug info |
 
 ## Shell Completion
@@ -163,9 +199,13 @@ zai completion zsh > "${fpath[1]}/_zai"
 zai completion fish > ~/.config/fish/completions/zai.fish
 ```
 
+## Documentation
+
+See [docs/documentation.md](docs/documentation.md) for the full documentation index.
+
 ## Requirements
 
-- Go 1.21+
+- Go 1.22+
 - Z.AI API key
 
 ## License

@@ -13,6 +13,8 @@ This document provides comprehensive API documentation for the zai CLI client in
   - [Web Reader API](#web-reader-api)
   - [Web Search API](#web-search-api)
   - [Audio Transcription API](#audio-transcription-api)
+  - [TTS API](#tts-api)
+  - [Embedding API](#embedding-api)
   - [Video Generation API](#video-generation-api)
 - [Cache Interface](#cache-interface)
   - [Constructor](#cache-constructor)
@@ -255,7 +257,7 @@ Generates an image using the GLM-Image model.
 **Validation:**
 
 - `Quality`: Must be "hd" or "standard"
-- `Size`: Must be one of 1024x1024, 1024x768, 768x1024, 512x512
+- `Size`: Must be one of 1024x1024, 1024x768, 768x1024, 512x512, 768x1344, 864x1152, 1344x768, 1152x864, 1440x720, 720x1440
 
 **Example:**
 
@@ -427,6 +429,112 @@ response, err := client.TranscribeAudio(ctx, "recording.wav", app.TranscriptionO
 
 ---
 
+### TTS API
+
+#### `TextToSpeech`
+
+```go
+func (c *Client) TextToSpeech(ctx context.Context, text string, opts TTSOptions) ([]byte, error)
+```
+
+Converts text to speech audio using the GLM-TTS model.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ctx` | `context.Context` | Context for cancellation/timeout |
+| `text` | `string` | Text to synthesize (required) |
+| `opts` | `TTSOptions` | TTS configuration |
+
+**Returns:** `([]byte, error)` - Raw audio bytes or error
+
+**Errors:**
+
+- `*APIError` - API returned non-200 status
+- `fmt.Errorf` - Empty text, no audio in response
+
+**Example:**
+
+```go
+audio, err := client.TextToSpeech(ctx, "Hello, world!", app.TTSOptions{
+    Voice: "tongtong",
+})
+if err != nil {
+    return err
+}
+os.WriteFile("output.wav", audio, 0644)
+```
+
+---
+
+### Embedding API
+
+#### `CreateEmbedding`
+
+```go
+func (c *Client) CreateEmbedding(ctx context.Context, texts []string, opts EmbeddingOptions) (*EmbeddingResponse, error)
+```
+
+Creates vector embeddings for one or more text inputs using the Embedding-3 model.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ctx` | `context.Context` | Context for cancellation/timeout |
+| `texts` | `[]string` | Text inputs to embed (required, at least one) |
+| `opts` | `EmbeddingOptions` | Embedding configuration |
+
+**Returns:** `(*EmbeddingResponse, error)` - Embedding response or error
+
+**Errors:**
+
+- `*APIError` - API returned non-200 status
+- `fmt.Errorf` - Empty texts slice, unmarshal failure
+
+**Response Fields:**
+
+`EmbeddingResponse`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Object` | `string` | Object type (e.g. "list") |
+| `Data` | `[]EmbeddingData` | Per-input embedding results |
+| `Model` | `string` | Model used |
+| `Usage` | `EmbeddingUsage` | Token usage |
+
+`EmbeddingData`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Object` | `string` | Object type (e.g. "embedding") |
+| `Embedding` | `[]float64` | Embedding vector |
+| `Index` | `int` | Index of the input text |
+
+`EmbeddingUsage`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `PromptTokens` | `int` | Tokens in the input |
+| `TotalTokens` | `int` | Total tokens used |
+
+**Example:**
+
+```go
+response, err := client.CreateEmbedding(ctx, []string{"Hello, world!", "Goodbye, world!"}, app.EmbeddingOptions{
+    Model: "embedding-3",
+})
+if err != nil {
+    return err
+}
+for _, item := range response.Data {
+    fmt.Printf("Input %d: %d-dimensional vector\n", item.Index, len(item.Embedding))
+}
+```
+
+---
+
 ### Video Generation API
 
 #### `GenerateVideo`
@@ -581,6 +689,14 @@ type WebSearchClient interface {
 
 type AudioClient interface {
     TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error)
+}
+
+type TTSClient interface {
+    TextToSpeech(ctx context.Context, text string, opts TTSOptions) ([]byte, error)
+}
+
+type EmbeddingClient interface {
+    CreateEmbedding(ctx context.Context, texts []string, opts EmbeddingOptions) (*EmbeddingResponse, error)
 }
 
 type VideoClient interface {
@@ -920,13 +1036,21 @@ Cache entries expire based on the TTL provided to `Set`:
 
 ```go
 type ClientConfig struct {
-    APIKey        string
-    BaseURL       string
-    CodingBaseURL string
-    Model         string
-    Timeout       time.Duration
-    Verbose       bool
-    RetryConfig   RetryConfig
+    APIKey         string
+    BaseURL        string
+    CodingBaseURL  string
+    UseCoding      bool
+    Model          string
+    ImageModel     string
+    VisionModel    string
+    AudioModel     string
+    TTSModel       string
+    EmbeddingModel string
+    Timeout        time.Duration
+    Verbose        bool
+    RateLimit      RateLimitConfig
+    RetryConfig    RetryConfig
+    CircuitBreaker config.CircuitBreakerConfig
 }
 ```
 
@@ -934,16 +1058,17 @@ type ClientConfig struct {
 
 ```go
 type ChatOptions struct {
-    Model       string
-    Temperature *float64
-    MaxTokens   *int
-    TopP        *float64
-    Thinking    *bool
-    WebEnabled  *bool
-    WebTimeout  *int
-    FilePath    string   // Legacy
-    Context     []Message // Legacy
-    Think       bool      // Legacy
+    Model        string
+    Temperature  *float64
+    MaxTokens    *int
+    TopP         *float64
+    Thinking     *bool
+    WebEnabled   *bool
+    WebTimeout   *int
+    FilePath     string
+    Context      []Message
+    Think        bool      // Legacy — bridges to Thinking
+    SystemPrompt string
 }
 ```
 
@@ -988,11 +1113,18 @@ type WebReaderOptions struct {
 
 ```go
 type SearchOptions struct {
-    Count         int
-    DomainFilter  string
-    RecencyFilter string
-    RequestID     string
-    UserID        string
+    Count          int
+    DomainFilter   string
+    RecencyFilter  string
+    Language       string
+    RequestID      string
+    UserID         string
+    SearchEngine   string  // "search_std", "search_pro", etc.
+    ContentSize    string  // "medium" or "high"
+    SearchResult   bool    // return detailed sources
+    RequireSearch  bool
+    SearchPrompt   string
+    ResultSequence string  // "before" or "after"
 }
 ```
 
@@ -1022,6 +1154,26 @@ type VideoOptions struct {
     ImageURLs []string
     UserID    string
     RequestID string
+}
+```
+
+### `TTSOptions`
+
+```go
+type TTSOptions struct {
+    Model          string
+    Voice          string
+    Speed          *int
+    Volume         *int
+    ResponseFormat string
+}
+```
+
+### `EmbeddingOptions`
+
+```go
+type EmbeddingOptions struct {
+    Model string
 }
 ```
 
