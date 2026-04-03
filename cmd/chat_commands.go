@@ -4,7 +4,6 @@ import (
 	"context"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/spf13/viper"
 
 	"github.com/dotcommander/zai/internal/app"
 )
@@ -93,21 +92,9 @@ func waitForToken(sc streamChans) tea.Cmd {
 	}
 }
 
-// launchSearchAugmentedStream performs a search first, then streams.
 func launchSearchAugmentedStream(ctx context.Context, client *app.Client, input string, opts app.ChatOptions, sc streamChans) tea.Cmd {
 	return func() tea.Msg {
-		searchOpts := app.SearchOptions{
-			Count:         5,
-			RecencyFilter: "oneWeek",
-			Language:      viper.GetString("web_search.language"),
-		}
-		results, err := client.SearchWeb(ctx, input, searchOpts)
-
-		messageToSend := input
-		if err == nil && results != nil && len(results.SearchResult) > 0 {
-			searchContext := app.FormatSearchForContext(results.SearchResult)
-			messageToSend = searchContext + "\n\nUser question: " + input
-		}
+		messageToSend := augmentWithSearch(ctx, client, input, true)
 
 		reader, err := client.StreamChat(ctx, messageToSend, opts)
 		if err != nil {

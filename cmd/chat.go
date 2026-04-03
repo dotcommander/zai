@@ -109,20 +109,7 @@ func runChatREPLRaw(client *app.Client, baseOpts app.ChatOptions, searchEnabled 
 			opts.FilePath = ""
 		}
 
-		// Augment with search if enabled
-		messageToSend := input
-		if searchEnabled {
-			searchOpts := app.SearchOptions{
-				Count:         5,
-				RecencyFilter: "oneWeek",
-				Language:      viper.GetString("web_search.language"),
-			}
-			results, err := client.SearchWeb(ctx, input, searchOpts)
-			if err == nil && results != nil && len(results.SearchResult) > 0 {
-				searchContext := app.FormatSearchForContext(results.SearchResult)
-				messageToSend = searchContext + "\n\nUser question: " + input
-			}
-		}
+		messageToSend := augmentWithSearch(ctx, client, input, searchEnabled)
 
 		reader, err := client.StreamChat(ctx, messageToSend, opts)
 		if err != nil {
@@ -130,17 +117,7 @@ func runChatREPLRaw(client *app.Client, baseOpts app.ChatOptions, searchEnabled 
 			continue
 		}
 
-		for {
-			token, err := reader.Next()
-			if err != nil {
-				if errors.Is(err, io.EOF) {
-					break
-				}
-				fmt.Fprintf(os.Stderr, "stream error: %v\n", err)
-				break
-			}
-			fmt.Print(token)
-		}
+		readStreamToStdout(reader)
 		fmt.Println()
 		reader.Close() //nolint:errcheck // best-effort
 
@@ -156,6 +133,36 @@ func runChatREPLRaw(client *app.Client, baseOpts app.ChatOptions, searchEnabled 
 	}
 
 	return scanner.Err()
+}
+
+func augmentWithSearch(ctx context.Context, client *app.Client, input string, searchEnabled bool) string {
+	if !searchEnabled {
+		return input
+	}
+	searchOpts := app.SearchOptions{
+		Count:         5,
+		RecencyFilter: "oneWeek",
+		Language:      viper.GetString("web_search.language"),
+	}
+	results, err := client.SearchWeb(ctx, input, searchOpts)
+	if err == nil && results != nil && len(results.SearchResult) > 0 {
+		searchContext := app.FormatSearchForContext(results.SearchResult)
+		return searchContext + "\n\nUser question: " + input
+	}
+	return input
+}
+
+func readStreamToStdout(reader *app.StreamReader) {
+	for {
+		token, err := reader.Next()
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				fmt.Fprintf(os.Stderr, "stream error: %v\n", err)
+			}
+			return
+		}
+		fmt.Print(token)
+	}
 }
 
 // --- Shared utilities used by both bubbletea model and raw fallback ---

@@ -264,31 +264,12 @@ func (m *chatModel) handleUserInput(input string) (tea.Model, tea.Cmd) {
 
 	// Search command
 	if isSearchCommand(input) {
-		query := strings.TrimSpace(stripCommandPrefix(input, "search"))
-		query, searchOpts := parseSearchCommand(query)
-		m.appendUserMessage(input)
-		m.sessionHist = append(m.sessionHist, input)
-		m.appendSystemMessage(theme.Info.Render("Searching: ") + query)
-		m.rebuildViewport()
-		m.viewport.GotoBottom()
-		return m, doSearch(context.Background(), m.client, query, searchOpts)
+		return m.handleSearchCommand(input)
 	}
 
 	// Web command
 	if isWebCommand(input) {
-		url := strings.TrimSpace(stripCommandPrefix(input, "web"))
-		if url == "" {
-			m.appendSystemMessage(theme.ErrorText.Render("Usage: /web <url>"))
-			m.rebuildViewport()
-			m.viewport.GotoBottom()
-			return m, nil
-		}
-		m.appendUserMessage(input)
-		m.sessionHist = append(m.sessionHist, input)
-		m.appendSystemMessage(theme.Info.Render("Fetching: ") + url)
-		m.rebuildViewport()
-		m.viewport.GotoBottom()
-		return m, doWebFetch(context.Background(), m.client, url)
+		return m.handleWebCommand(input)
 	}
 
 	// Regular chat message
@@ -326,6 +307,33 @@ func (m *chatModel) handleUserInput(input string) (tea.Model, tea.Cmd) {
 	)
 }
 
+func (m *chatModel) handleSearchCommand(input string) (tea.Model, tea.Cmd) {
+	query := strings.TrimSpace(stripCommandPrefix(input, "search"))
+	query, searchOpts := parseSearchCommand(query)
+	m.appendUserMessage(input)
+	m.sessionHist = append(m.sessionHist, input)
+	m.appendSystemMessage(theme.Info.Render("Searching: ") + query)
+	m.rebuildViewport()
+	m.viewport.GotoBottom()
+	return m, doSearch(context.Background(), m.client, query, searchOpts)
+}
+
+func (m *chatModel) handleWebCommand(input string) (tea.Model, tea.Cmd) {
+	url := strings.TrimSpace(stripCommandPrefix(input, "web"))
+	if url == "" {
+		m.appendSystemMessage(theme.ErrorText.Render("Usage: /web <url>"))
+		m.rebuildViewport()
+		m.viewport.GotoBottom()
+		return m, nil
+	}
+	m.appendUserMessage(input)
+	m.sessionHist = append(m.sessionHist, input)
+	m.appendSystemMessage(theme.Info.Render("Fetching: ") + url)
+	m.rebuildViewport()
+	m.viewport.GotoBottom()
+	return m, doWebFetch(context.Background(), m.client, url)
+}
+
 func (m *chatModel) finishStream(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 	m.streaming = false
 	raw := m.streamBuf.String()
@@ -360,12 +368,12 @@ func (m *chatModel) handleSearchResult(msg searchResultMsg) (tea.Model, tea.Cmd)
 	b.WriteString(theme.Dim.Render(fmt.Sprintf("Found %d results", len(msg.results.SearchResult))))
 	b.WriteString("\n\n")
 	for i, result := range msg.results.SearchResult {
-		b.WriteString(fmt.Sprintf("  %s %s\n",
+		fmt.Fprintf(&b, "  %s %s\n",
 			theme.Dim.Render(fmt.Sprintf("%d.", i+1)),
-			theme.ResultTitle.Render(result.Title)))
-		b.WriteString(fmt.Sprintf("     %s\n", theme.ResultLink.Render(result.Link)))
+			theme.ResultTitle.Render(result.Title))
+		fmt.Fprintf(&b, "     %s\n", theme.ResultLink.Render(result.Link))
 		if result.Content != "" {
-			b.WriteString(fmt.Sprintf("     %s\n", theme.Dim.Render(truncate(result.Content, 200))))
+			fmt.Fprintf(&b, "     %s\n", theme.Dim.Render(truncate(result.Content, 200)))
 		}
 		b.WriteString("\n")
 	}
@@ -430,7 +438,7 @@ func (m *chatModel) View() tea.View {
 	if !m.streaming {
 		c := m.input.Cursor()
 		if c != nil {
-			c.Position.Y += lipgloss.Height(vpView) + 1
+			c.Y += lipgloss.Height(vpView) + 1
 		}
 		v.Cursor = c
 	}
@@ -537,9 +545,9 @@ func (m *chatModel) helpText() string {
 		{"exit, quit", "Exit chat"},
 	}
 	for _, c := range cmds {
-		b.WriteString(fmt.Sprintf("  %s  %s\n",
+		fmt.Fprintf(&b, "  %s  %s\n",
 			theme.Info.Render(fmt.Sprintf("%-16s", c.cmd)),
-			theme.Dim.Render(c.desc)))
+			theme.Dim.Render(c.desc))
 	}
 	return b.String()
 }
@@ -552,9 +560,9 @@ func (m *chatModel) historyText() string {
 	b.WriteString(theme.Section.Render(fmt.Sprintf("Session History (%d messages)", len(m.sessionHist))) + "\n")
 	b.WriteString(theme.Divider.Render(strings.Repeat("─", 40)) + "\n")
 	for i, msg := range m.sessionHist {
-		b.WriteString(fmt.Sprintf("  %s %s\n",
+		fmt.Fprintf(&b, "  %s %s\n",
 			theme.Dim.Render(fmt.Sprintf("%2d.", i+1)),
-			truncate(msg, 60)))
+			truncate(msg, 60))
 	}
 	return b.String()
 }
@@ -573,7 +581,7 @@ func (m *chatModel) contextText() string {
 		} else {
 			styledRole = theme.AILabel.Render("[AI]")
 		}
-		b.WriteString(fmt.Sprintf("  %s %s\n", styledRole, theme.Dim.Render(truncate(msg.Content, 50))))
+		fmt.Fprintf(&b, "  %s %s\n", styledRole, theme.Dim.Render(truncate(msg.Content, 50)))
 	}
 	return b.String()
 }
