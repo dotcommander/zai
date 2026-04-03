@@ -247,7 +247,12 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 		return "", Usage{}, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/chat/completions", c.config.BaseURL)
+	baseURL := c.config.BaseURL
+	if c.config.UseCoding {
+		baseURL = c.config.CodingBaseURL
+	}
+
+	url := fmt.Sprintf("%s/chat/completions", baseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", Usage{}, fmt.Errorf("failed to create request: %w", err)
@@ -296,10 +301,7 @@ func (c *Client) doRequestWithRetry(ctx context.Context, messages []Message, opt
 	var lastErr error
 
 	// Apply defaults for zero values
-	maxAttempts := c.config.RetryConfig.MaxAttempts
-	if maxAttempts < 1 {
-		maxAttempts = 1 // No retry if not configured
-	}
+	maxAttempts := max(c.config.RetryConfig.MaxAttempts, 1)
 
 	initialBackoff := c.config.RetryConfig.InitialBackoff
 	if initialBackoff < 1 {
