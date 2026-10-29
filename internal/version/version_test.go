@@ -78,6 +78,20 @@ func TestString(t *testing.T) {
 	}
 }
 
+func TestLinkerReleaseVersion(t *testing.T) {
+	// Serial: version metadata is process-global state.
+	originalVersion, originalCommit, originalBuild, originalOverride := version.Version, version.Commit, version.Build, version.BuildVersion
+	t.Cleanup(func() {
+		version.Version, version.Commit, version.Build, version.BuildVersion = originalVersion, originalCommit, originalBuild, originalOverride
+	})
+	version.Version = "0.0.0"
+	version.BuildVersion = "v0.2.0"
+	version.Init()
+	if version.Version != "v0.2.0" {
+		t.Fatalf("linker release overridden: %q", version.Version)
+	}
+}
+
 func TestVersionPrefix(t *testing.T) {
 	// Verify no double 'v' prefix
 	tests := []struct {

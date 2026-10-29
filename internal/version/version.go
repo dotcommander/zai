@@ -14,6 +14,9 @@ var (
 	// Version is the current version of the application.
 	Version = "0.2.0"
 
+	// BuildVersion is an explicit linker override for release builds.
+	BuildVersion = ""
+
 	// Commit is the git commit hash (first 7 chars).
 	Commit = "unknown"
 
@@ -24,13 +27,16 @@ var (
 // Init populates Version, Commit, and Build from debug.BuildInfo.
 // Call this once at program startup before reading the version variables.
 func Init() {
+	if BuildVersion != "" {
+		Version = BuildVersion
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return
 	}
 
 	// Get version from module (if available)
-	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+	if BuildVersion == "" && info.Main.Version != "" && info.Main.Version != "(devel)" {
 		Version = info.Main.Version
 	}
 
