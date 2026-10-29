@@ -8,9 +8,9 @@ BUILD_TIME?=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 COMMIT?=$(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 
 # Build ldflags
-LDFLAGS=-X 'zai/internal/version.Version=$(VERSION)' \
-		-X 'zai/internal/version.Build=$(BUILD_TIME)' \
-		-X 'zai/internal/version.Commit=$(COMMIT)'
+LDFLAGS=-X 'github.com/dotcommander/zai/internal/version.Version=$(VERSION)' \
+		-X 'github.com/dotcommander/zai/internal/version.Build=$(BUILD_TIME)' \
+		-X 'github.com/dotcommander/zai/internal/version.Commit=$(COMMIT)'
 
 build: lint
 	@echo "Building $(BINARY_NAME)..."

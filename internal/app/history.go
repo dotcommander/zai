@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,23 +111,8 @@ func (h *FileHistoryStore) GetRecent(limit int) ([]HistoryEntry, error) {
 	}
 	defer closeFile(file)
 
-	var entries []HistoryEntry
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // 1MB max line size
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		var entry HistoryEntry
-		if err := json.Unmarshal([]byte(line), &entry); err == nil {
-			entries = append(entries, entry)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
+	entries, err := readHistoryEntries(file)
+	if err != nil {
 		return nil, fmt.Errorf("error reading history file: %w", err)
 	}
 
@@ -136,6 +122,44 @@ func (h *FileHistoryStore) GetRecent(limit int) ([]HistoryEntry, error) {
 	}
 
 	return entries, nil
+}
+
+// readHistoryEntries bounds each record while allowing later valid records.
+func readHistoryEntries(input io.Reader) ([]HistoryEntry, error) {
+	const maxRecordBytes = 1024 * 1024
+	reader := bufio.NewReaderSize(input, 64*1024)
+	var entries []HistoryEntry
+	var record []byte
+	oversized := false
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if !oversized {
+			if len(record)+len(fragment) > maxRecordBytes {
+				oversized = true
+				record = nil
+			} else {
+				record = append(record, fragment...)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		if !oversized {
+			line := strings.TrimSpace(string(record))
+			var entry HistoryEntry
+			if line != "" && json.Unmarshal([]byte(line), &entry) == nil {
+				entries = append(entries, entry)
+			}
+		}
+		if err == io.EOF {
+			return entries, nil
+		}
+		record = record[:0]
+		oversized = false
+	}
 }
 
 // Path returns the history file path.

@@ -48,8 +48,15 @@ func registerChatCmd() {
 // falls back to raw streaming for non-TTY (pipes).
 func runChatREPL() error {
 	client, baseOpts, searchEnabled := initializeChatOptions()
+	if value := strings.TrimSpace(viper.GetString("system")); value != "" {
+		resolved, _, err := resolveSystemPrompt(value)
+		if err != nil {
+			return err
+		}
+		baseOpts.SystemPrompt = resolved
+	}
 
-	if !term.IsTerminal(os.Stdout.Fd()) {
+	if !term.IsTerminal(os.Stdout.Fd()) || !term.IsTerminal(os.Stdin.Fd()) {
 		return runChatREPLRaw(client, baseOpts, searchEnabled)
 	}
 
@@ -65,19 +72,15 @@ func initializeChatOptions() (*app.Client, app.ChatOptions, bool) {
 	baseOpts := app.DefaultChatOptions()
 	baseOpts.FilePath = viper.GetString("file")
 	baseOpts.Model = strings.TrimSpace(chatModelFlag)
+	if baseOpts.Model == "" {
+		baseOpts.Model = viper.GetString("api.model")
+	}
 	baseOpts.Think = viper.GetBool("think")
 
 	systemVal := strings.TrimSpace(viper.GetString("system"))
 	if systemVal != "" {
-		resolvedSystem, fromFile, err := resolveSystemPrompt(systemVal)
-		switch {
-		case err != nil:
-			fmt.Fprintf(os.Stderr, "warning: failed to resolve system prompt (%v); using default concise prompt\n", err)
-			baseOpts.SystemPrompt = ""
-		case !fromFile && looksLikeSystemPromptPath(systemVal):
-			fmt.Fprintf(os.Stderr, "warning: system prompt %q looks like a file path but was not found; using default concise prompt\n", systemVal)
-			baseOpts.SystemPrompt = ""
-		default:
+		resolvedSystem, _, err := resolveSystemPrompt(systemVal)
+		if err == nil {
 			baseOpts.SystemPrompt = resolvedSystem
 		}
 	}
@@ -88,41 +91,87 @@ func initializeChatOptions() (*app.Client, app.ChatOptions, bool) {
 
 // runChatREPLRaw is the non-TTY fallback: bare scanner, raw token streaming.
 func runChatREPLRaw(client *app.Client, baseOpts app.ChatOptions, searchEnabled bool) error {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	var chatCtx []app.Message
 	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 64*1024), MaxStdinSize)
+	var sessionHist []string
 
 	for scanner.Scan() {
 		input := strings.TrimSpace(scanner.Text())
 		if input == "" {
 			continue
 		}
-		if input == "exit" || input == "quit" {
+		if input == "exit" || input == "quit" || input == "/exit" || input == "/quit" {
 			return nil
 		}
 
+		local := strings.TrimPrefix(input, "/")
+		switch local {
+		case "clear":
+			chatCtx = nil
+			sessionHist = nil
+			continue
+		case "help", "?":
+			fmt.Println((&chatModel{}).helpText())
+			continue
+		case "history":
+			fmt.Println((&chatModel{sessionHist: sessionHist}).historyText())
+			continue
+		case "context":
+			fmt.Println((&chatModel{chatCtx: chatCtx}).contextText())
+			continue
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		sessionHist = append(sessionHist, input)
+		if isSearchCommand(input) {
+			query, options := parseSearchCommand(stripCommandPrefix(input, "search"))
+			results, err := client.SearchWeb(ctx, query, options)
+			stop()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				continue
+			}
+			text := app.FormatSearchResultsForChat(results.SearchResult, query)
+			fmt.Println(text)
+			chatCtx = append(chatCtx, app.Message{Role: "user", Content: input}, app.Message{Role: "assistant", Content: text})
+			continue
+		}
+		if isWebCommand(input) {
+			url := strings.TrimSpace(stripCommandPrefix(input, "web"))
+			response, err := client.FetchWebContent(ctx, url, &app.WebReaderOptions{ReturnFormat: "markdown"})
+			stop()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				continue
+			}
+			text := app.FormatWebContent(url, response.ReaderResult.Title, response.ReaderResult.Content)
+			fmt.Println(text)
+			chatCtx = append(chatCtx, app.Message{Role: "user", Content: input}, app.Message{Role: "assistant", Content: text})
+			continue
+		}
 		opts := baseOpts
 		opts.Context = chatCtx
-		if len(chatCtx) > 0 {
-			opts.FilePath = ""
-		}
 
 		messageToSend := augmentWithSearch(ctx, client, input, searchEnabled)
 
 		reader, err := client.StreamChat(ctx, messageToSend, opts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			stop()
 			continue
 		}
 
-		readStreamToStdout(reader)
+		streamErr := readStreamToStdout(reader)
 		fmt.Println()
 		reader.Close() //nolint:errcheck // best-effort
 
+		stop()
+		if streamErr != nil {
+			continue
+		}
 		response := reader.FullContent()
-		client.SaveStreamToHistory(messageToSend, response, reader.StreamUsage())
+		client.SaveStreamToHistory(messageToSend, response, reader.StreamUsage(), reader.Model())
 		chatCtx = append(chatCtx,
 			app.Message{Role: "user", Content: messageToSend},
 			app.Message{Role: "assistant", Content: response},
@@ -152,14 +201,17 @@ func augmentWithSearch(ctx context.Context, client *app.Client, input string, se
 	return input
 }
 
-func readStreamToStdout(reader *app.StreamReader) {
+func readStreamToStdout(reader *app.StreamReader) error {
 	for {
 		token, err := reader.Next()
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				fmt.Fprintf(os.Stderr, "stream error: %v\n", err)
 			}
-			return
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
 		}
 		fmt.Print(token)
 	}
@@ -227,8 +279,14 @@ var searchFlagRE = regexp.MustCompile(`-(\w+)\s*(\S+)`)
 func truncate(s string, maxLen int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	r := []rune(s)
+	if maxLen <= 0 {
+		return ""
+	}
 	if len(r) <= maxLen {
 		return s
+	}
+	if maxLen <= 3 {
+		return string(r[:maxLen])
 	}
 	return string(r[:maxLen-3]) + "..."
 }

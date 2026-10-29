@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -34,11 +35,11 @@ var videoCmd = &cobra.Command{
 Text-to-Video:
   zai video "A cat playing with a ball"
 
-Image-to-Video:
+Image-to-Video (HTTP(S) URLs only; local files are unsupported):
   zai video -f https://example.com/image.jpg "Make the picture move"
 
 First & Last Frame:
-  zai video -f first.jpg -f last.jpg "Smooth transition"
+  zai video -f https://example.com/first.jpg -f https://example.com/last.jpg "Smooth transition"
 
 Examples:
   zai video "a sunset over the ocean" --quality quality --size 1920x1080
@@ -46,7 +47,11 @@ Examples:
   zai video "prompt" --output my-video.mp4 --show`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runVideoGeneration(args[0])
+		limit, err := mediaDownloadLimit(cmd)
+		if err != nil {
+			return err
+		}
+		return runVideoGeneration(args[0], limit)
 	},
 }
 
@@ -62,14 +67,23 @@ func registerVideoCmd() {
 	videoCmd.Flags().StringVarP(&videoModel, "model", "m", "", "Override default video model")
 	videoCmd.Flags().StringVar(&videoUserID, "user-id", "", "User ID for analytics")
 	videoCmd.Flags().StringVar(&videoRequestID, "request-id", "", "Unique request ID")
-	videoCmd.Flags().StringArrayVarP(&videoImageURLs, "file", "f", []string{}, "Image URL(s) for image-to-video or first/last frame mode (can specify 1 or 2)")
+	videoCmd.Flags().StringArrayVarP(&videoImageURLs, "file", "f", []string{}, "Absolute HTTP(S) image URL(s) for image-to-video or first/last frame mode (can specify 1 or 2)")
 	videoCmd.Flags().DurationVar(&videoPollTimeout, "poll-timeout", 3*time.Minute, "Maximum time to wait for video generation")
+
+	videoCmd.Flags().Int64("max-download-bytes", app.DefaultMaxDownloadBytes, "Maximum downloaded video size in bytes (must be positive)")
 
 	// Register with root
 	rootCmd.AddCommand(videoCmd)
 }
 
-func runVideoGeneration(prompt string) error {
+func runVideoGeneration(prompt string, maxBytes ...int64) error {
+	if err := validateVideoImageURLs(videoImageURLs); err != nil {
+		return err
+	}
+	limit, err := mediaDownloadLimit(nil, maxBytes...)
+	if err != nil {
+		return err
+	}
 	client := newClient()
 	ctx, cancel := context.WithTimeout(context.Background(), videoPollTimeout)
 	defer cancel()
@@ -103,7 +117,7 @@ func runVideoGeneration(prompt string) error {
 	}
 
 	// Display and handle the result
-	return displayVideoResult(ctx, result)
+	return displayVideoResult(ctx, result, limit)
 }
 
 // pollForResult polls for video generation completion with spinner.
@@ -143,7 +157,7 @@ func pollForResult(ctx context.Context, client *app.Client, taskID string) (*app
 }
 
 // displayVideoResult handles displaying, saving, and opening the generated video.
-func displayVideoResult(ctx context.Context, result *app.VideoResultResponse) error {
+func displayVideoResult(ctx context.Context, result *app.VideoResultResponse, maxBytes ...int64) error {
 	if len(result.VideoResult) == 0 {
 		return errors.New("no video in result")
 	}
@@ -166,7 +180,11 @@ func displayVideoResult(ctx context.Context, result *app.VideoResultResponse) er
 
 	// Save video to disk
 	fmt.Printf("💾 Downloading to: %s\n", outputPath)
-	downloader := app.NewMediaDownloader(nil)
+	limit, err := mediaDownloadLimit(nil, maxBytes...)
+	if err != nil {
+		return err
+	}
+	downloader := app.NewMediaDownloader(nil, limit)
 	downloadResult := downloader.Download(ctx, videoData.URL, outputPath)
 	if downloadResult.Error != nil {
 		return fmt.Errorf("failed to save video: %w", downloadResult.Error)
@@ -211,4 +229,15 @@ func buildVideoOptions() app.VideoOptions {
 	}
 
 	return opts
+}
+
+// validateVideoImageURLs rejects local input before generation is submitted.
+func validateVideoImageURLs(inputs []string) error {
+	for _, input := range inputs {
+		u, err := url.Parse(input)
+		if err != nil || !u.IsAbs() || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			return fmt.Errorf("video -f requires an absolute HTTP(S) image URL; local files are unsupported: %q", input)
+		}
+	}
+	return nil
 }

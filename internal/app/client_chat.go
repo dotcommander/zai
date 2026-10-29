@@ -34,14 +34,14 @@ func (c *Client) Chat(ctx context.Context, prompt string, opts ChatOptions) (str
 	// Build messages array with context
 	messages := c.buildMessagesWithContext(content, opts)
 
-	// Execute request with retry
-	response, usage, err := c.doRequestWithRetry(ctx, messages, opts)
+	// Execute billable generation once; callers decide whether to submit again.
+	response, usage, err := c.doRequest(ctx, messages, opts)
 	if err != nil {
 		return "", err
 	}
 
 	// Save to history (non-blocking, log errors)
-	c.saveToHistory(prompt, response, usage)
+	c.saveToHistory(prompt, response, usage, c.buildChatRequest(nil, opts, false).Model)
 
 	return response, nil
 }
@@ -53,6 +53,7 @@ type StreamReader struct {
 	usage       Usage
 	fullContent strings.Builder
 	done        bool
+	model       string
 }
 
 // Next reads the next token from the stream.
@@ -115,6 +116,8 @@ func (sr *StreamReader) Close() error {
 }
 
 // FullContent returns all accumulated content from the stream.
+func (sr *StreamReader) Model() string { return sr.model }
+
 func (sr *StreamReader) FullContent() string {
 	return sr.fullContent.String()
 }
@@ -143,8 +146,8 @@ func (c *Client) StreamChat(ctx context.Context, prompt string, opts ChatOptions
 }
 
 // SaveStreamToHistory saves a completed stream exchange to history.
-func (c *Client) SaveStreamToHistory(prompt, response string, usage Usage) {
-	c.saveToHistory(prompt, response, usage)
+func (c *Client) SaveStreamToHistory(prompt, response string, usage Usage, models ...string) {
+	c.saveToHistory(prompt, response, usage, models...)
 }
 
 // buildChatRequest constructs a ChatRequest from messages and options.
@@ -217,15 +220,14 @@ func (c *Client) doStreamRequest(ctx context.Context, messages []Message, opts C
 
 	c.logger.DebugContext(ctx, "sending streaming request", "url", url)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doChatHTTP(req, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close() //nolint:errcheck // body already read, closing for cleanup
-		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
+		defer closeBody(resp)
+		return nil, providerError(resp)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -234,6 +236,7 @@ func (c *Client) doStreamRequest(ctx context.Context, messages []Message, opts C
 	return &StreamReader{
 		scanner: scanner,
 		body:    resp.Body,
+		model:   reqData.Model,
 	}, nil
 }
 
@@ -264,19 +267,18 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 
 	c.logger.DebugContext(ctx, "sending request", "url", url)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doChatHTTP(req, false)
 	if err != nil {
 		return "", Usage{}, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer closeBody(resp)
 
+	if resp.StatusCode != http.StatusOK {
+		return "", Usage{}, providerError(resp)
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", Usage{}, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", Usage{}, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	var chatResp ChatResponse
@@ -296,62 +298,10 @@ func (c *Client) doRequest(ctx context.Context, messages []Message, opts ChatOpt
 	return chatResp.Choices[0].Message.Content, chatResp.Usage, nil
 }
 
-// doRequestWithRetry executes doRequest with exponential backoff retry logic.
+// doRequestWithRetry retains its internal compatibility name but submits generation once.
+// An ambiguous provider failure must not automatically replay billable work.
 func (c *Client) doRequestWithRetry(ctx context.Context, messages []Message, opts ChatOptions) (string, Usage, error) {
-	var lastErr error
-
-	// Apply defaults for zero values
-	maxAttempts := max(c.config.RetryConfig.MaxAttempts, 1)
-
-	initialBackoff := c.config.RetryConfig.InitialBackoff
-	if initialBackoff < 1 {
-		initialBackoff = 1 * time.Second
-	}
-
-	maxBackoff := c.config.RetryConfig.MaxBackoff
-	if maxBackoff < 1 {
-		maxBackoff = 30 * time.Second
-	}
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Check context before attempting
-		select {
-		case <-ctx.Done():
-			return "", Usage{}, ctx.Err()
-		default:
-		}
-
-		// On retry (not first attempt), log and wait
-		if attempt > 1 {
-			backoff := calculateBackoff(attempt, initialBackoff, maxBackoff)
-			c.logger.DebugContext(ctx, "retrying request",
-				"attempt", attempt,
-				"max_attempts", maxAttempts,
-				"backoff", backoff,
-				"error", lastErr)
-
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				return "", Usage{}, ctx.Err()
-			}
-		}
-
-		// Execute request
-		response, usage, err := c.doRequest(ctx, messages, opts)
-		if err == nil {
-			return response, usage, nil
-		}
-
-		lastErr = err
-
-		// Don't retry if error is not retryable or this was the last attempt
-		if !isRetryableError(err) || attempt == maxAttempts {
-			break
-		}
-	}
-
-	return "", Usage{}, fmt.Errorf("request failed after %d attempts: %w", maxAttempts, lastErr)
+	return c.doRequest(ctx, messages, opts)
 }
 
 // enrichWithURLContent fetches web content for URLs in the prompt if web is enabled.
@@ -436,22 +386,19 @@ func (c *Client) defaultWebReaderOptions(timeout *int) *WebReaderOptions {
 
 // buildMessagesWithContext constructs messages array including conversation context.
 func (c *Client) buildMessagesWithContext(content string, opts ChatOptions) []Message {
-	messages := c.buildMessages(content, opts)
-
-	// Prepend context messages if provided
-	if len(opts.Context) > 0 {
-		messages = append(opts.Context, messages...)
-	}
-
-	return messages
+	return c.buildMessages(content, opts)
 }
 
 // saveToHistory persists the chat exchange to history storage.
-func (c *Client) saveToHistory(prompt, response string, usage Usage) {
+func (c *Client) saveToHistory(prompt, response string, usage Usage, models ...string) {
 	if c.history == nil {
 		return
 	}
-	entry := NewChatHistoryEntry(time.Now(), prompt, response, c.config.Model, usage)
+	model := c.config.Model
+	if len(models) > 0 && models[0] != "" {
+		model = models[0]
+	}
+	entry := NewChatHistoryEntry(time.Now(), prompt, response, model, usage)
 	if err := c.history.Save(entry); err != nil {
 		c.logger.Warn("failed to save to history", "error", err)
 	}
@@ -488,7 +435,7 @@ func (c *Client) buildContent(ctx context.Context, prompt, filePath string) (str
 
 // buildMessages constructs the messages array for the API.
 func (c *Client) buildMessages(content string, opts ChatOptions) []Message {
-	var messages []Message
+	messages := make([]Message, 0, len(opts.Context)+2)
 
 	// Add system prompt (custom or default)
 	systemPrompt := opts.SystemPrompt
@@ -500,6 +447,8 @@ func (c *Client) buildMessages(content string, opts ChatOptions) []Message {
 		Content: systemPrompt,
 	})
 
+	messages = append(messages, opts.Context...)
+
 	// Add current user message
 	messages = append(messages, Message{
 		Role:    "user",
@@ -507,4 +456,34 @@ func (c *Client) buildMessages(content string, opts ChatOptions) []Message {
 	})
 
 	return messages
+}
+
+// doChatHTTP applies the configured breaker to chat request and response headers.
+func (c *Client) doChatHTTP(req *http.Request, stream bool) (*http.Response, error) {
+	var resp *http.Response
+	run := func() error {
+		client := c.httpClient
+		if stream {
+			client = c.streamHTTPClient
+		}
+		var err error
+		resp, err = client.Do(req)
+		if err != nil {
+			return err
+		}
+		if resp.StatusCode >= 400 {
+			return &APIError{StatusCode: resp.StatusCode}
+		}
+		return nil
+	}
+	var err error
+	if breaker := c.getCircuitBreaker("chat"); breaker != nil {
+		err = breaker.Execute(run)
+	} else {
+		err = run()
+	}
+	if resp != nil {
+		return resp, nil
+	}
+	return nil, err
 }

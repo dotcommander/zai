@@ -61,7 +61,9 @@ VAD removes silent segments before sending audio to the API, which reduces both 
 | AAC | `.aac` |
 | Ogg | `.ogg` |
 
-The maximum file size is 25MB. Files exceeding this limit are automatically split into 30-second chunks and transcribed in parallel.
+The maximum request file size is 25 MiB. Larger files are automatically split into 25-second chunks and transcribed in parallel without streaming. Local input files are preserved; only generated or downloaded temporary files are removed.
+
+Use `zai audio -f recording.wav --stream` to print transcription text as it arrives. Streaming cannot be combined with `--json` and requires inputs no larger than 25 MiB; rerun without `--stream` to process larger files in parallel chunks.
 
 <a name="preprocessing"></a>
 ## Preprocessing
@@ -85,6 +87,7 @@ zai audio -f speech.mp3 -m glm-asr-2512
 | Flag | Effect |
 |------|--------|
 | `--json` | Output transcription as JSON |
+| `--stream` | Print text deltas as they arrive (up to 25 MiB; incompatible with `--json`) |
 | `-l <lang>` | Specify the audio language |
 | `-p <text>` | Provide prior context to improve accuracy |
 | `--resume` | Resume a partial transcription |

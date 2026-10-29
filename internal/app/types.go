@@ -10,6 +10,7 @@ import (
 type APIError struct {
 	StatusCode int
 	Body       string
+	RequestID  string // Provider request identifier, when supplied.
 }
 
 func (e *APIError) Error() string {

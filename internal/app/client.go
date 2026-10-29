@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -188,6 +189,8 @@ type CircuitBreaker struct {
 	failureCount    int
 	successCount    int
 	lastStateChange time.Time
+	generation      uint64
+	probeInFlight   bool
 }
 
 // NewCircuitBreaker creates a new circuit breaker.
@@ -202,31 +205,65 @@ func NewCircuitBreaker(name string, config config.CircuitBreakerConfig, logger *
 
 // Execute wraps a function call with circuit breaker protection.
 func (cb *CircuitBreaker) Execute(fn func() error) error {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
+	return cb.executeWithContext(context.Background(), fn)
+}
 
-	// Check if circuit breaker is open
+// executeWithContext admits requests under the lock, but never holds it during network I/O.
+func (cb *CircuitBreaker) executeWithContext(ctx context.Context, fn func() error) error {
+	cb.mu.Lock()
 	if cb.state == Open {
-		// Check if timeout has passed
 		if time.Since(cb.lastStateChange) < cb.config.Timeout {
+			cb.mu.Unlock()
 			return fmt.Errorf("circuit breaker '%s' is open (timeout: %v)", cb.name, cb.config.Timeout)
 		}
-		// Move to half-open state
-		cb.state = HalfOpen
+		cb.setState(HalfOpen, nil)
 		cb.successCount = 0
-		cb.logger.Info("circuit breaker state change",
-			"name", cb.name,
-			"from", "open",
-			"to", "half-open")
 	}
+	if cb.state == HalfOpen {
+		if cb.probeInFlight {
+			cb.mu.Unlock()
+			return fmt.Errorf("circuit breaker '%s' half-open probe is in progress", cb.name)
+		}
+		cb.probeInFlight = true
+	}
+	generation := cb.generation
+	cb.mu.Unlock()
 
-	// Execute the function
 	err := fn()
 
-	// Record the result
-	cb.recordResult(err)
-
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	// Older requests must not change a newer state, including after manual reset.
+	if generation == cb.generation {
+		cb.probeInFlight = false
+		if !excludedBreakerError(ctx, err) {
+			cb.recordResult(err)
+		}
+	}
 	return err
+}
+
+// excludedBreakerError leaves the failure/success counters untouched. HTTP
+// client timeouts are transport failures; an expired caller context is excluded.
+func excludedBreakerError(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return true
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode < 500 || apiErr.StatusCode >= 600
+	}
+	var transportErr net.Error
+	if errors.As(err, &transportErr) && transportErr.Timeout() && transportErr != context.DeadlineExceeded {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	return false
 }
 
 // Reset manually resets the circuit breaker to closed state.
@@ -235,6 +272,8 @@ func (cb *CircuitBreaker) Reset() {
 	defer cb.mu.Unlock()
 
 	cb.state = Closed
+	cb.generation++
+	cb.probeInFlight = false
 	cb.failureCount = 0
 	cb.successCount = 0
 	cb.lastStateChange = time.Now()
@@ -278,6 +317,8 @@ func (cb *CircuitBreaker) setState(newState CircuitBreakerState, err error) {
 	if cb.state != newState {
 		oldState := cb.state
 		cb.state = newState
+		cb.generation++
+		cb.probeInFlight = false
 		cb.lastStateChange = time.Now()
 
 		// Reset counters when transitioning to closed
@@ -313,6 +354,9 @@ func NewRateLimitedClient(client HTTPDoer, rateLimitConfig RateLimitConfig, logg
 		return client
 	}
 
+	if rateLimitConfig.Burst == 0 {
+		rateLimitConfig.Burst = 1
+	}
 	limiter := rate.NewLimiter(rate.Limit(rateLimitConfig.RequestsPerSecond), rateLimitConfig.Burst)
 	return &RateLimitedClient{
 		client:  client,
@@ -347,20 +391,23 @@ type OSFileReader = fileutil.OSFileReader
 
 // Client implements ChatClient with Z.AI API.
 type Client struct {
-	config          ClientConfig
-	httpClient      HTTPDoer
-	logger          *slog.Logger
-	history         HistoryStore
-	fileReader      FileReader
-	circuitBreakers map[string]*CircuitBreaker
-	mu              sync.RWMutex
+	config           ClientConfig
+	httpClient       HTTPDoer
+	streamHTTPClient HTTPDoer
+	logger           *slog.Logger
+	history          HistoryStore
+	fileReader       FileReader
+	circuitBreakers  map[string]*CircuitBreaker
+	mu               sync.RWMutex
 }
 
 // ClientDeps holds optional dependencies for NewClient.
 // Zero values mean "use default implementation".
 type ClientDeps struct {
 	HTTPClient HTTPDoer
-	FileReader FileReader
+	// StreamHTTPClient overrides the independent streaming transport.
+	StreamHTTPClient HTTPDoer
+	FileReader       FileReader
 }
 
 // NewClient creates a client with injected dependencies.
@@ -378,15 +425,32 @@ func NewClientWithDeps(cfg ClientConfig, logger *slog.Logger, history HistorySto
 	}
 
 	var httpClient HTTPDoer
+	var streamHTTPClient HTTPDoer
 	var fileReader FileReader
 
 	if deps != nil {
 		httpClient = deps.HTTPClient
+		streamHTTPClient = deps.StreamHTTPClient
 		fileReader = deps.FileReader
 	}
 
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: timeout}
+	}
+	if streamHTTPClient == nil {
+		// Keep dial/TLS deadlines from the standard transport, without imposing
+		// a total duration on a stream that is making progress.
+		transport := (&http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: time.Second,
+			ResponseHeaderTimeout: 60 * time.Second,
+		})
+		streamHTTPClient = &http.Client{Transport: transport}
 	}
 	if fileReader == nil {
 		fileReader = OSFileReader{}
@@ -394,14 +458,18 @@ func NewClientWithDeps(cfg ClientConfig, logger *slog.Logger, history HistorySto
 
 	// Wrap HTTP client with rate limiting
 	httpClient = NewRateLimitedClient(httpClient, cfg.RateLimit, logger)
+	if limited, ok := httpClient.(*RateLimitedClient); ok {
+		streamHTTPClient = &RateLimitedClient{client: streamHTTPClient, limiter: limited.limiter, logger: logger}
+	}
 
 	client := &Client{
-		config:          cfg,
-		httpClient:      httpClient,
-		logger:          logger,
-		history:         history,
-		fileReader:      fileReader,
-		circuitBreakers: make(map[string]*CircuitBreaker),
+		config:           cfg,
+		httpClient:       httpClient,
+		streamHTTPClient: streamHTTPClient,
+		logger:           logger,
+		history:          history,
+		fileReader:       fileReader,
+		circuitBreakers:  make(map[string]*CircuitBreaker),
 	}
 
 	// Initialize circuit breakers
@@ -415,6 +483,11 @@ func NewClientWithDeps(cfg ClientConfig, logger *slog.Logger, history HistorySto
 // HTTPClient returns the underlying HTTP client for connection reuse.
 func (c *Client) HTTPClient() HTTPDoer {
 	return c.httpClient
+}
+
+// StreamHTTPClient returns the streaming transport, which has no total timeout.
+func (c *Client) StreamHTTPClient() HTTPDoer {
+	return c.streamHTTPClient
 }
 
 // initCircuitBreakers initializes circuit breakers for different API endpoints.
@@ -490,7 +563,7 @@ func buildGetRequest(ctx context.Context, baseURL, apiKey, endpoint string) (*ht
 
 // withCircuitBreaker wraps fn with the circuit breaker for the given endpoint,
 // if circuit breaking is enabled and a breaker exists. Otherwise calls fn directly.
-func (c *Client) withCircuitBreaker(endpoint string, fn func() ([]byte, error)) ([]byte, error) {
+func (c *Client) withCircuitBreaker(ctx context.Context, endpoint string, fn func() ([]byte, error)) ([]byte, error) {
 	if !c.config.CircuitBreaker.Enabled {
 		return fn()
 	}
@@ -499,7 +572,7 @@ func (c *Client) withCircuitBreaker(endpoint string, fn func() ([]byte, error)) 
 		return fn()
 	}
 	var result []byte
-	err := cb.Execute(func() error {
+	err := cb.executeWithContext(ctx, func() error {
 		var innerErr error
 		result, innerErr = fn()
 		return innerErr
@@ -509,7 +582,7 @@ func (c *Client) withCircuitBreaker(endpoint string, fn func() ([]byte, error)) 
 
 // executeJSONRequest executes a JSON POST request using HTTPDoer interface.
 func (c *Client) executeJSONRequest(ctx context.Context, endpoint string, reqData interface{}) ([]byte, error) {
-	return c.withCircuitBreaker(endpoint, func() ([]byte, error) {
+	return c.withCircuitBreaker(ctx, endpoint, func() ([]byte, error) {
 		return c.executeJSONRequestInternal(ctx, endpoint, reqData)
 	})
 }
@@ -527,29 +600,12 @@ func (c *Client) executeJSONRequestInternal(ctx context.Context, endpoint string
 	if err != nil {
 		return nil, err
 	}
-
-	c.logger.DebugContext(ctx, "sending request", "url", req.URL)
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer closeBody(resp)
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
-	}
-
-	return body, nil
+	return c.executeBufferedRequest(ctx, req)
 }
 
 // executeGetRequest executes a GET request using HTTPDoer interface.
 func (c *Client) executeGetRequest(ctx context.Context, endpoint string) ([]byte, error) {
-	return c.withCircuitBreaker(endpoint, func() ([]byte, error) {
+	return c.withCircuitBreaker(ctx, endpoint, func() ([]byte, error) {
 		return c.executeGetRequestInternal(ctx, endpoint)
 	})
 }
@@ -560,7 +616,10 @@ func (c *Client) executeGetRequestInternal(ctx context.Context, endpoint string)
 	if err != nil {
 		return nil, err
 	}
+	return c.executeBufferedRequest(ctx, req)
+}
 
+func (c *Client) executeBufferedRequest(ctx context.Context, req *http.Request) ([]byte, error) {
 	c.logger.DebugContext(ctx, "sending request", "url", req.URL)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -568,13 +627,12 @@ func (c *Client) executeGetRequestInternal(ctx context.Context, endpoint string)
 	}
 	defer closeBody(resp)
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, providerError(resp)
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	return body, nil
@@ -641,47 +699,38 @@ func isRetryableError(err error) bool {
 		return false
 	}
 
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
 	// Network errors: timeout, connection refused, etc.
 	var netErr interface{ Timeout() bool }
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
 
-	// Check for specific error patterns
-	errStr := err.Error()
-	retryablePatterns := []string{
-		"connection refused",
-		"connection reset",
-		"temporary failure",
-		"timeout",
-		"429", // Too Many Requests (rate limit)
-		"503", // Service Unavailable
-		"502", // Bad Gateway
-		"504", // Gateway Timeout
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 429 || apiErr.StatusCode == 502 || apiErr.StatusCode == 503 || apiErr.StatusCode == 504
 	}
-
-	for _, pattern := range retryablePatterns {
-		if strings.Contains(strings.ToLower(errStr), pattern) {
-			return true
-		}
-	}
-
-	return false
+	var networkErr *net.OpError
+	return errors.As(err, &networkErr)
 }
 
 // calculateBackoff calculates exponential backoff with jitter.
 func calculateBackoff(attempt int, initialBackoff, maxBackoff time.Duration) time.Duration {
-	// Cap attempt to prevent overflow (2^62 would overflow time.Duration)
-	if attempt > 62 {
-		attempt = 62
+	if initialBackoff <= 0 || maxBackoff <= 0 {
+		return 0
 	}
-
-	// Exponential backoff: initial * 2^(attempt-1)
-	backoff := initialBackoff * time.Duration(1<<uint(attempt-1)) //nolint:gosec // G115: attempt count is small, overflow impossible
-
-	// Cap at max backoff
+	backoff := initialBackoff
 	if backoff > maxBackoff {
 		backoff = maxBackoff
+	}
+	for i := 1; i < attempt && backoff < maxBackoff; i++ {
+		if backoff > maxBackoff/2 {
+			backoff = maxBackoff
+			break
+		}
+		backoff *= 2
 	}
 
 	// Add jitter (±12.5%, centered - so jitter can add or subtract up to 12.5%)

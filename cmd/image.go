@@ -39,7 +39,11 @@ Examples:
   zai image "sunset" --no-enhance    # Skip prompt enhancement`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runImageGeneration(args[0])
+		limit, err := mediaDownloadLimit(cmd)
+		if err != nil {
+			return err
+		}
+		return runImageGeneration(args[0], limit)
 	},
 }
 
@@ -62,6 +66,8 @@ func registerImageCmd() {
 	imageCmd.Flags().StringVar(&imageUserID, "user-id", "", "User ID for analytics")
 	imageCmd.Flags().BoolVarP(&imageEnhance, "enhance", "e", true, "Enhance prompt with AI before generation")
 	imageCmd.Flags().BoolVar(&imageNoEnhance, "no-enhance", false, "Disable prompt enhancement")
+
+	imageCmd.Flags().Int64("max-download-bytes", app.DefaultMaxDownloadBytes, "Maximum downloaded image size in bytes (must be positive)")
 
 	// Mark mutually exclusive flags
 	imageCmd.MarkFlagsMutuallyExclusive("enhance", "no-enhance")
@@ -134,7 +140,11 @@ func enhanceImagePrompt(client *app.Client, prompt string) (string, error) {
 	return enhanceImagePromptWithCtx(ctx, client, prompt)
 }
 
-func runImageGeneration(prompt string) error {
+func runImageGeneration(prompt string, maxBytes ...int64) error {
+	limit, err := mediaDownloadLimit(nil, maxBytes...)
+	if err != nil {
+		return err
+	}
 	client := newClient()
 	ctx, cancel := createContext(5 * time.Minute)
 	defer cancel()
@@ -156,7 +166,7 @@ func runImageGeneration(prompt string) error {
 	saveToHistory(prompt, imageData, opts.Model)
 
 	// Display and handle the result
-	return displayImageResult(ctx, imageData, finalPrompt, imageSize)
+	return displayImageResult(ctx, imageData, finalPrompt, imageSize, limit)
 }
 
 // buildImageOptions creates image options from command line flags and config.
@@ -280,9 +290,9 @@ func ProcessImageResult(ctx context.Context, result *ImageResult, cfg ImageOutpu
 	saveResult := saver.Save(ctx, result.Data.URL, outputPath)
 	if saveResult.Error != nil {
 		handler.PrintSaveError(saveResult.Error)
-	} else {
-		handler.PrintSaveSuccess(outputPath)
+		return fmt.Errorf("failed to save image: %w", saveResult.Error)
 	}
+	handler.PrintSaveSuccess(outputPath)
 
 	// Copy to clipboard
 	if cfg.Copy {
@@ -304,7 +314,7 @@ func ProcessImageResult(ctx context.Context, result *ImageResult, cfg ImageOutpu
 }
 
 // displayImageResult handles displaying, saving, and opening the generated image.
-func displayImageResult(ctx context.Context, imageData app.ImageData, prompt, size string) error {
+func displayImageResult(ctx context.Context, imageData app.ImageData, prompt, size string, maxBytes ...int64) error {
 	result := &ImageResult{
 		Data:   imageData,
 		Prompt: prompt,
@@ -318,7 +328,11 @@ func displayImageResult(ctx context.Context, imageData app.ImageData, prompt, si
 	}
 
 	handler := &DefaultImageOutputHandler{}
-	saver := NewImageSaver(nil)
+	limit, err := mediaDownloadLimit(nil, maxBytes...)
+	if err != nil {
+		return err
+	}
+	saver := NewImageSaver(nil, limit)
 
 	return ProcessImageResult(ctx, result, cfg, handler, saver)
 }
@@ -374,8 +388,8 @@ type ImageSaver struct {
 }
 
 // NewImageSaver creates an ImageSaver with the provided HTTP client.
-func NewImageSaver(httpClient app.HTTPDoer) *ImageSaver {
-	return &ImageSaver{downloader: app.NewMediaDownloader(httpClient)}
+func NewImageSaver(httpClient app.HTTPDoer, maxBytes ...int64) *ImageSaver {
+	return &ImageSaver{downloader: app.NewMediaDownloader(httpClient, maxBytes...)}
 }
 
 // ImageSaveResult contains the result of saving an image.

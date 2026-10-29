@@ -16,18 +16,26 @@ func closeBodyResponse(resp *http.Response) {
 	}
 }
 
+// DefaultMaxDownloadBytes is the default bound for media transfers.
+const DefaultMaxDownloadBytes int64 = 536870912
+
 // MediaDownloader handles downloading media files with DI support.
 type MediaDownloader struct {
 	httpClient HTTPDoer
+	maxBytes   int64
 }
 
 // NewMediaDownloader creates a MediaDownloader with the provided HTTP client.
 // If httpClient is nil, a default http.Client is used.
-func NewMediaDownloader(httpClient HTTPDoer) *MediaDownloader {
+func NewMediaDownloader(httpClient HTTPDoer, maxBytes ...int64) *MediaDownloader {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
-	return &MediaDownloader{httpClient: httpClient}
+	limit := DefaultMaxDownloadBytes
+	if len(maxBytes) > 0 {
+		limit = maxBytes[0]
+	}
+	return &MediaDownloader{httpClient: httpClient, maxBytes: limit}
 }
 
 // DownloadResult contains the result of a download operation.
@@ -39,6 +47,9 @@ type DownloadResult struct {
 
 // Download fetches a URL and saves to file with directory creation.
 func (d *MediaDownloader) Download(ctx context.Context, url, filePath string) *DownloadResult {
+	if d.maxBytes <= 0 {
+		return &DownloadResult{FilePath: filePath, Error: fmt.Errorf("max download bytes must be positive")}
+	}
 	if err := ensureDir(filePath); err != nil {
 		return &DownloadResult{FilePath: filePath, Error: err}
 	}
@@ -59,7 +70,11 @@ func (d *MediaDownloader) Download(ctx context.Context, url, filePath string) *D
 		return &DownloadResult{FilePath: filePath, Error: fmt.Errorf("download failed: status %d", resp.StatusCode)}
 	}
 
-	size, err := writeToFile(filePath, resp.Body)
+	if resp.ContentLength > d.maxBytes {
+		return &DownloadResult{FilePath: filePath, Error: fmt.Errorf("download exceeds maximum of %d bytes", d.maxBytes)}
+	}
+
+	size, err := writeToFile(filePath, resp.Body, d.maxBytes)
 	if err != nil {
 		return &DownloadResult{FilePath: filePath, Error: err}
 	}
@@ -78,18 +93,33 @@ func ensureDir(filePath string) error {
 	return nil
 }
 
-// writeToFile writes reader content to a file and returns bytes written.
-func writeToFile(filePath string, r io.Reader) (int64, error) {
-	out, err := os.Create(filePath)
+// writeToFile publishes a completed, bounded transfer atomically.
+func writeToFile(filePath string, r io.Reader, maxBytes int64) (int64, error) {
+	out, err := os.CreateTemp(filepath.Dir(filePath), "."+filepath.Base(filePath)+"-*")
 	if err != nil {
-		return 0, fmt.Errorf("create file: %w", err)
+		return 0, fmt.Errorf("create temporary file: %w", err)
 	}
-	defer closeFile(out)
+	defer os.Remove(out.Name()) //nolint:errcheck // Best-effort cleanup; a successful rename already removes the temporary path.
+	defer out.Close()           //nolint:errcheck // Failure paths preserve their primary error; the successful path explicitly checks Close below.
 
-	size, err := io.Copy(out, r)
+	size, err := io.Copy(out, io.LimitReader(r, maxBytes))
 	if err != nil {
 		return 0, fmt.Errorf("write file: %w", err)
 	}
-
+	// Read one extra byte separately to avoid overflowing maxBytes + 1.
+	var extra [1]byte
+	n, err := io.ReadFull(r, extra[:])
+	if n > 0 {
+		return 0, fmt.Errorf("download exceeds maximum of %d bytes", maxBytes)
+	}
+	if err != nil && err != io.EOF {
+		return 0, fmt.Errorf("read download: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		return 0, fmt.Errorf("close file: %w", err)
+	}
+	if err := os.Rename(out.Name(), filePath); err != nil {
+		return 0, fmt.Errorf("publish file: %w", err)
+	}
 	return size, nil
 }

@@ -20,19 +20,19 @@ Zai displays the task ID and polls for completion, showing elapsed time as it wa
 <a name="image-to-video"></a>
 ## Image-to-Video
 
-Animate a still image by providing it with `-f`:
+Animate a still image by providing its absolute HTTP(S) URL with `-f`. Local file paths are unsupported:
 
 ```bash
-zai video -f photo.jpg "Make the clouds move slowly"
+zai video -f https://example.com/photo.jpg "Make the clouds move slowly"
 ```
 
 Create a transition between two frames by providing both:
 
 ```bash
-zai video -f first.jpg -f last.jpg "Smooth camera pan from left to right"
+zai video -f https://example.com/first.jpg -f https://example.com/last.jpg "Smooth camera pan from left to right"
 ```
 
-The first file becomes the opening frame and the second becomes the closing frame. Zai generates the motion between them.
+The first URL becomes the opening frame and the second becomes the closing frame. Zai generates the motion between them.
 
 <a name="video-options"></a>
 ## Video Options
@@ -57,6 +57,7 @@ zai video "prompt" --poll-timeout 5m
 | `--with-audio` | Generate AI sound effects for the video |
 | `-o <path>` | Custom output path instead of auto-generated filename |
 | `--show` | Open in your default video player after generation |
+| `--max-download-bytes <n>` | Positive download byte limit (default: `536870912`; config/environment supported) |
 | `--poll-timeout <dur>` | Maximum time to wait for generation (default: `3m`) |
 
 > [!NOTE]

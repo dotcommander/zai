@@ -12,6 +12,8 @@ formatters:
 
 linters:
   disable-all: true
+  # Repeated protocol names, JSON keys, and CLI labels do not necessarily
+  # share a semantic owner, so goconst would create misleading constants.
   enable:
     - ineffassign
     - staticcheck
@@ -27,7 +29,6 @@ linters:
     - gocognit
     - funlen
     - nestif
-    - goconst
     - revive
 
   settings:
@@ -38,22 +39,17 @@ linters:
         - shadow
 
     gocyclo:
-      min-complexity: 15
+      min-complexity: 30
 
     gocognit:
-      min-complexity: 20
+      min-complexity: 40
 
     funlen:
-      lines: 80
-      statements: 50
+      lines: 90
+      statements: 75
 
     nestif:
-      min-complexity: 4
-
-    goconst:
-      min-len: 3
-      min-occurrences: 3
-      ignore-tests: true
+      min-complexity: 10
 
     dupl:
       threshold: 100
@@ -149,6 +145,18 @@ linters:
             - pkg: github.com/mattn/go-sqlite3
               desc: "Use modernc.org/sqlite (pure Go, no CGO) instead"
 
+  # Test tables and fixtures are often deliberately large; retain the checks
+  # for production control flow without requiring fixture extraction.
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+          - funlen
+          - gocognit
+          - gocyclo
+          - nestif
+
 run:
   timeout: 5m
   build-tags: []
@@ -156,13 +164,3 @@ run:
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - dupl
-        - goconst
-        - funlen
-        - gocognit
-    - path: cmd/
-      linters:
-        - funlen

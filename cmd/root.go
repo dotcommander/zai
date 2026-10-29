@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -47,6 +46,7 @@ type RunConfig struct {
 	Search     bool
 	Verbose    bool
 	System     string
+	Model      string
 }
 
 // NewRunConfig creates RunConfig from viper settings (collected after flag parsing).
@@ -58,6 +58,7 @@ func NewRunConfig() RunConfig {
 		Search:     viper.GetBool("search"),
 		Verbose:    viper.GetBool("verbose"),
 		System:     viper.GetString("system"),
+		Model:      viper.GetString("api.model"),
 	}
 }
 
@@ -82,14 +83,8 @@ Interactive REPL:
 
 History:
   zai history`,
-	Args: cobra.ArbitraryArgs,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Skip config init for commands that don't need API
-		if cmd.Name() == "history" || cmd.Name() == "completion" || cmd.Name() == "help" || cmd.Name() == "version" {
-			return nil
-		}
-		return initConfig()
-	},
+	Args:              cobra.ArbitraryArgs,
+	PersistentPreRunE: initializeCommandConfig,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		var prompt string
 		var stdinData string
@@ -146,12 +141,16 @@ History:
 			return cmd.Help()
 		}
 
+		if err := initializeRootInputConfig(cmd, args); err != nil {
+			return err
+		}
 		return runOneShot(prompt)
 	},
 }
 
 // Execute is the entry point for the CLI. It registers all subcommands and runs the root command.
 func Execute() {
+	rootCmd.Version = version.String()
 	registerRootCmd()
 	registerAudioCmd()
 	registerChatCmd()
@@ -159,12 +158,15 @@ func Execute() {
 	registerHistoryCmd()
 	registerImageCmd()
 	registerModelCmd()
+	rootCmd.AddCommand(newUsageCommand())
 	registerReaderCmd()
 	registerSearchCmd()
 	registerTTSCmd()
 	registerVersionCmd()
 	registerVideoCmd()
 	registerVisionCmd()
+	registerAdvancedCommands()
+	rootCmd.AddCommand(newMCPCommand())
 
 	if err := rootCmd.Execute(); err != nil {
 		printStyledError(err)
@@ -225,6 +227,8 @@ func registerRootCmd() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "output in JSON format")
 	rootCmd.PersistentFlags().BoolVar(&search, "search", false, "augment prompt with web search results")
 	rootCmd.PersistentFlags().BoolVarP(&coding, "coding", "C", false, "use coding API endpoint")
+	rootCmd.PersistentFlags().String("model", "", "Override chat model")
+	_ = viper.BindPFlag("api.model", rootCmd.PersistentFlags().Lookup("model"))
 	rootCmd.PersistentFlags().StringVar(&system, "system", "", "custom system prompt")
 
 	_ = viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
@@ -269,24 +273,11 @@ func styledHelp(cmd *cobra.Command, args []string) {
 	// Commands section
 	fmt.Println(theme.Section.Render("Commands"))
 	fmt.Println(theme.Divider.Render(strings.Repeat("-", 50)))
-	commands := [][]string{
-		{"chat", "Interactive chat session (REPL)"},
-		{"search", "Search the web"},
-		{"reader", "Fetch web content"},
-		{"image", "Generate images with AI enhancement"},
-		{"vision", "Analyze images with AI vision"},
-		{"audio", "Transcribe audio to text"},
-		{"tts", "Convert text to speech"},
-		{"embed", "Generate text embeddings"},
-		{"video", "Generate videos with AI"},
-		{"history", "View chat history"},
-		{"model", "Model management"},
-		{"version", "Show version information"},
-	}
-	for _, c := range commands {
-		fmt.Printf("  %s  %s\n",
-			theme.Command.Render(fmt.Sprintf("%-10s", c[0])),
-			theme.Description.Render(c[1]))
+	for _, command := range cmd.Commands() {
+		if !command.IsAvailableCommand() || command.Hidden {
+			continue
+		}
+		fmt.Printf("  %s  %s\n", theme.Command.Render(fmt.Sprintf("%-12s", command.Name())), theme.Description.Render(command.Short))
 	}
 	fmt.Println()
 
@@ -298,7 +289,12 @@ func styledHelp(cmd *cobra.Command, args []string) {
 		{"--search", "Augment with web search results"},
 		{"--think", "Enable reasoning mode"},
 		{"-C, --coding", "Use coding API endpoint"},
-		{"--json", "Output as JSON"},
+		{"--json", "Output complete API JSON"},
+		{"--request-json <file|->", "Advanced API JSON request"},
+		{"--events", "Lossless SSE events as NDJSON"},
+		{"--tool-stream", "Stream text, reasoning, and tool calls"},
+		{"--model <id>", "Override the selected model"},
+		{"--download <path>", "Save a completed artifact atomically"},
 		{"--system <prompt>", "Custom system prompt (text or file path)"},
 		{"--config <path>", "Config file (default ~/.config/zai/config.yaml)"},
 		{"-v, --verbose", "Show debug info"},
@@ -314,39 +310,6 @@ func styledHelp(cmd *cobra.Command, args []string) {
 	// Footer
 	fmt.Println(theme.Description.Render("Use \"zai <command> --help\" for command details"))
 	fmt.Println()
-}
-
-func initConfig() error {
-	if cfgFile != "" {
-		viper.SetConfigFile(cfgFile)
-	} else {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		configDir := filepath.Join(home, ".config", "zai")
-		viper.AddConfigPath(configDir)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName("config")
-	}
-
-	// Always read config file (moved outside if/else to fix --config flag bug)
-	if err := viper.ReadInConfig(); err != nil {
-		var notFound viper.ConfigFileNotFoundError
-		if !errors.As(err, &notFound) {
-			return err
-		}
-	}
-
-	viper.SetEnvPrefix("ZAI")
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	viper.AutomaticEnv()
-
-	if viper.GetString("api.key") == "" {
-		return errors.New("API key required: set ZAI_API_KEY or configure in ~/.config/zai/config.yaml")
-	}
-
-	return nil
 }
 
 // createContext creates a context with timeout for CLI operations.
@@ -370,7 +333,7 @@ func getModelWithDefault(configKey, fallback string) string {
 // normalizeAPIURLs ensures baseURL always points to the standard API endpoint
 // and codingBaseURL always points to the coding endpoint. If the user configured
 // base_url with the coding path, we fix both URLs so non-chat endpoints work.
-func normalizeAPIURLs(baseURL, codingBaseURL string) (string, string) {
+func normalizeAPIURLs(baseURL, codingBaseURL string) (standardURL, codingURL string) {
 	const codingPath = "/api/coding/paas/"
 	const standardPath = "/api/paas/"
 
@@ -461,18 +424,21 @@ func newClientWithConfig(cfg app.ClientConfig) *app.Client {
 
 // hasStdinData detects if stdin has piped/redirected data.
 func hasStdinData() bool {
-	stat, _ := os.Stdin.Stat()
+	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
 	return (stat.Mode() & os.ModeCharDevice) == 0
 }
 
 // readStdin reads all data from stdin with a size limit.
 func readStdin() (string, error) {
-	limitedReader := io.LimitReader(os.Stdin, MaxStdinSize)
+	limitedReader := io.LimitReader(os.Stdin, MaxStdinSize+1)
 	data, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return "", err
 	}
-	if len(data) == MaxStdinSize {
+	if len(data) > MaxStdinSize {
 		return "", fmt.Errorf("stdin exceeds maximum size of %d bytes", MaxStdinSize)
 	}
 	dataStr := string(data)
@@ -502,6 +468,9 @@ func resolveSystemPrompt(value string) (string, bool, error) {
 	info, err := os.Stat(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if looksLikeSystemPromptPath(value) {
+				return "", false, fmt.Errorf("system prompt file %q: %w", value, err)
+			}
 			return value, false, nil
 		}
 		return "", false, err
@@ -534,7 +503,7 @@ func looksLikeSystemPromptPath(value string) bool {
 	}
 
 	ext := filepath.Ext(value)
-	return ext != ""
+	return ext != "" && ext != "." && !strings.ContainsAny(value, " \t\n")
 }
 
 // runOneShot executes a single prompt and exits.
@@ -578,7 +547,7 @@ func runOneShot(prompt string) error {
 	fmt.Println()
 
 	// Save to history
-	client.SaveStreamToHistory(prompt, reader.FullContent(), reader.StreamUsage())
+	client.SaveStreamToHistory(prompt, reader.FullContent(), reader.StreamUsage(), reader.Model())
 
 	return nil
 }
@@ -587,6 +556,7 @@ func runOneShot(prompt string) error {
 func setupOneShotConfig(cfg RunConfig) (*app.Client, app.ChatOptions) {
 	client := newClient()
 	opts := app.DefaultChatOptions()
+	opts.Model = cfg.Model
 	opts.FilePath = cfg.FilePath
 	opts.Think = cfg.Think
 	opts.SystemPrompt = cfg.System

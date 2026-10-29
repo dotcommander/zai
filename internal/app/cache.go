@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -97,7 +96,19 @@ func (fsc *FileSearchCache) Set(query string, opts SearchOptions, results []Sear
 		return fmt.Errorf("failed to marshal cache entry: %w", err)
 	}
 
-	if err := os.WriteFile(filename, data, 0600); err != nil {
+	tmp, err := os.CreateTemp(fsc.dir, ".cache-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) //nolint:errcheck // Best-effort cleanup; a successful rename already removes the temporary path.
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close() //nolint:errcheck // Preserve the write error; closing the failed temporary file is best effort.
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), filename); err != nil {
 		return fmt.Errorf("failed to write cache file: %w", err)
 	}
 
@@ -140,8 +151,6 @@ func (fsc *FileSearchCache) tryCleanup() {
 
 // Cleanup removes expired entries.
 func (fsc *FileSearchCache) Cleanup() error {
-	fsc.mutex.Lock()
-	defer fsc.mutex.Unlock()
 
 	entries, err := os.ReadDir(fsc.dir)
 	if err != nil {
@@ -165,12 +174,12 @@ func (fsc *FileSearchCache) Cleanup() error {
 		var cacheEntry SearchCacheEntry
 		if err := json.Unmarshal(data, &cacheEntry); err != nil {
 			// Corrupted entry, remove it
-			os.Remove(filename) //nolint:errcheck // best-effort cleanup
+			fsc.removeUnchanged(filename, data)
 			continue
 		}
 
 		if time.Now().After(cacheEntry.ExpiresAt) {
-			os.Remove(filename) //nolint:errcheck // best-effort cleanup
+			fsc.removeUnchanged(filename, data)
 		}
 	}
 
@@ -179,26 +188,12 @@ func (fsc *FileSearchCache) Cleanup() error {
 
 // generateCacheKey creates a unique hash for the query and options.
 func generateCacheKey(query string, opts SearchOptions) string {
-	h := sha256.New()
-
-	// Include query
-	h.Write([]byte(query))
-
-	// Include relevant options that affect results
-	if opts.DomainFilter != "" {
-		h.Write([]byte("domain:" + opts.DomainFilter))
-	}
-	if opts.RecencyFilter != "" && opts.RecencyFilter != "noLimit" {
-		h.Write([]byte("recency:" + opts.RecencyFilter))
-	}
-	if opts.Count > 0 {
-		h.Write([]byte("count:" + strconv.Itoa(opts.Count)))
-	}
-	if opts.Language != "" {
-		h.Write([]byte("lang:" + opts.Language))
-	}
-
-	return hex.EncodeToString(h.Sum(nil))
+	data, _ := json.Marshal(struct {
+		Query   string
+		Options SearchOptions
+	}{query, opts})
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // CacheStats provides statistics about the cache.
@@ -259,4 +254,13 @@ func (fsc *FileSearchCache) Stats() (*CacheStats, error) {
 	}
 
 	return stats, nil
+}
+
+func (fsc *FileSearchCache) removeUnchanged(filename string, original []byte) {
+	fsc.mutex.Lock()
+	defer fsc.mutex.Unlock()
+	current, err := os.ReadFile(filename)
+	if err == nil && string(current) == string(original) {
+		_ = os.Remove(filename)
+	}
 }

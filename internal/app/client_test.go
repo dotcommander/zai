@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -174,7 +175,7 @@ func TestClientListModels(t *testing.T) {
 	assert.Equal(t, "glm-4.6", models[1].ID)
 }
 
-// TestClientRetryLogic tests the retry logic with transient failures.
+// TestClientRetryLogic ensures billable chat is not replayed after provider failure.
 func TestClientRetryLogic(t *testing.T) {
 	attemptCount := 0
 
@@ -224,9 +225,9 @@ func TestClientRetryLogic(t *testing.T) {
 
 	response, err := client.Chat(ctx, "test", opts)
 
-	require.NoError(t, err)
-	assert.Equal(t, "Success after retry", response)
-	assert.Equal(t, 2, attemptCount)
+	require.Error(t, err)
+	assert.Empty(t, response)
+	assert.Equal(t, 1, attemptCount)
 }
 
 // TestClientContextCancellation tests that context cancellation is respected.
@@ -333,10 +334,10 @@ func TestIsRetryableError(t *testing.T) {
 	}{
 		{"nil error", nil, false},
 		{"timeout error", &testTimeoutError{true}, true},
-		{"connection refused", errors.New("connection refused"), true},
-		{"503 error", errors.New("API error: 503"), true},
-		{"502 error", errors.New("API error: 502"), true},
-		{"504 error", errors.New("API error: 504"), true},
+		{"connection refused", &net.OpError{Op: "dial", Err: errors.New("connection refused")}, true},
+		{"503 error", &APIError{StatusCode: 503}, true},
+		{"502 error", &APIError{StatusCode: 502}, true},
+		{"504 error", &APIError{StatusCode: 504}, true},
 		{"400 error", errors.New("API error: 400"), false},
 		{"500 error", errors.New("API error: 500"), false},
 	}

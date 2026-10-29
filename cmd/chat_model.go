@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -42,6 +43,7 @@ type chatModel struct {
 	streaming bool
 	sc        streamChans
 	streamBuf strings.Builder
+	turn      uint64
 	streamCtx context.Context //nolint:containedctx // bubbletea model needs cancel handle
 	cancelFn  context.CancelFunc
 
@@ -136,6 +138,11 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo,
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 
+	case turnTokenMsg:
+		if msg.turn != m.turn || !m.streaming {
+			return m, nil
+		}
+		return m.Update(tokenMsg(msg.token))
 	case tokenMsg:
 		m.streamBuf.WriteString(string(msg))
 		m.rebuildViewport()
@@ -143,9 +150,18 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo,
 		return m, waitForToken(m.sc)
 
 	case streamDoneMsg:
+		if msg.turn != m.turn {
+			return m, nil
+		}
 		return m.finishStream(msg)
 
 	case streamErrMsg:
+		if msg.turn != m.turn {
+			return m, nil
+		}
+		if !m.streaming && errors.Is(msg.err, context.Canceled) {
+			return m, nil
+		}
 		m.streaming = false
 		m.appendSystemMessage(theme.ErrorText.Render("Error: ") + msg.err.Error())
 		m.rebuildViewport()
@@ -153,9 +169,23 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:gocyclo,
 		return m, m.input.Focus()
 
 	case searchResultMsg:
+		if msg.turn != m.turn {
+			return m, nil
+		}
+		m.streaming = false
+		if m.cancelFn != nil {
+			m.cancelFn()
+		}
 		return m.handleSearchResult(msg)
 
 	case webContentMsg:
+		if msg.turn != m.turn {
+			return m, nil
+		}
+		m.streaming = false
+		if m.cancelFn != nil {
+			m.cancelFn()
+		}
 		return m.handleWebContent(msg)
 	}
 
@@ -179,6 +209,7 @@ func (m *chatModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "ctrl+c":
 		if m.streaming {
+			m.turn++
 			// Cancel the active stream
 			if m.cancelFn != nil {
 				m.cancelFn()
@@ -279,9 +310,6 @@ func (m *chatModel) handleUserInput(input string) (tea.Model, tea.Cmd) {
 	// Build opts with context
 	opts := m.opts
 	opts.Context = m.chatCtx
-	if len(m.chatCtx) > 0 {
-		opts.FilePath = ""
-	}
 
 	m.streaming = true
 	m.streamBuf.Reset()
@@ -292,7 +320,9 @@ func (m *chatModel) handleUserInput(input string) (tea.Model, tea.Cmd) {
 	m.viewport.GotoBottom()
 
 	m.streamCtx, m.cancelFn = context.WithCancel(context.Background())
+	m.turn++
 	m.sc = newStreamChans()
+	m.sc.turn = m.turn
 
 	if m.searchEnabled {
 		return m, tea.Batch(
@@ -315,7 +345,10 @@ func (m *chatModel) handleSearchCommand(input string) (tea.Model, tea.Cmd) {
 	m.appendSystemMessage(theme.Info.Render("Searching: ") + query)
 	m.rebuildViewport()
 	m.viewport.GotoBottom()
-	return m, doSearch(context.Background(), m.client, query, searchOpts)
+	m.turn++
+	m.streaming = true
+	m.streamCtx, m.cancelFn = context.WithCancel(context.Background())
+	return m, doSearch(m.streamCtx, m.client, query, searchOpts, m.turn)
 }
 
 func (m *chatModel) handleWebCommand(input string) (tea.Model, tea.Cmd) {
@@ -331,7 +364,10 @@ func (m *chatModel) handleWebCommand(input string) (tea.Model, tea.Cmd) {
 	m.appendSystemMessage(theme.Info.Render("Fetching: ") + url)
 	m.rebuildViewport()
 	m.viewport.GotoBottom()
-	return m, doWebFetch(context.Background(), m.client, url)
+	m.turn++
+	m.streaming = true
+	m.streamCtx, m.cancelFn = context.WithCancel(context.Background())
+	return m, doWebFetch(m.streamCtx, m.client, url, m.turn)
 }
 
 func (m *chatModel) finishStream(msg streamDoneMsg) (tea.Model, tea.Cmd) {
@@ -343,7 +379,7 @@ func (m *chatModel) finishStream(msg streamDoneMsg) (tea.Model, tea.Cmd) {
 		m.appendAssistantMessage(raw)
 
 		// Save to history and update context
-		m.client.SaveStreamToHistory(msg.input, raw, msg.usage)
+		m.client.SaveStreamToHistory(msg.input, raw, msg.usage, msg.model)
 		m.chatCtx = append(m.chatCtx,
 			app.Message{Role: "user", Content: msg.input},
 			app.Message{Role: "assistant", Content: raw},
@@ -406,8 +442,8 @@ func (m *chatModel) handleWebContent(msg webContentMsg) (tea.Model, tea.Cmd) {
 	b.WriteString(theme.ResultLink.Render(msg.resp.ReaderResult.URL))
 	b.WriteString("\n\n")
 	content := msg.resp.ReaderResult.Content
-	if len(content) > 2000 {
-		content = content[:2000] + "\n\n" + theme.Dim.Render("[truncated — full content in context]")
+	if len([]rune(content)) > 2000 {
+		content = string([]rune(content)[:min(2000, len([]rune(content)))]) + "\n\n" + theme.Dim.Render("[truncated — full content in context]")
 	}
 	b.WriteString(theme.Dim.Render(content))
 	m.appendSystemMessage(b.String())

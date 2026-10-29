@@ -1,0 +1,16 @@
+{
+  "scope": "Prose-documented global API and Coding Plan capabilities beyond docs/api-coverage.json",
+  "provider_verification": "Not performed; no paid/live requests or external tool installation",
+  "capabilities": [
+    {"name":"Audio hotwords", "cli":"audio --hotwords or --request-json", "contract":"TestAdvancedAudioHotwordsArray", "status":"implemented"},
+    {"name":"Streamed tool calls", "cli":"--tool-stream or --request-json with tool_stream and --events", "contract":"TestAdvancedToolStreamFlagDispatch", "status":"implemented"},
+    {"name":"Server-side MCP Calling", "cli":"chat --request-json with tools[type=mcp]", "contract":"TestAdvancedMCPAndCacheFields", "status":"implemented via lossless request/event interfaces", "documentation":"global-api.md"},
+    {"name":"Automatic context caching", "cli":"chat; --json retains cached-token usage metadata", "contract":"TestAdvancedMCPAndCacheFields", "status":"provider-managed; metadata retained", "documentation":"global-api.md"},
+    {"name":"Vision MCP", "cli":"mcp vision tools|call", "contract":"TestMCP", "status":"implemented stdio adapter; upstream Node package not installed or live-tested", "documentation":"mcp.md"},
+    {"name":"Search MCP", "cli":"mcp search tools|call", "contract":"TestMCP", "status":"implemented Streamable HTTP adapter", "documentation":"mcp.md"},
+    {"name":"Reader MCP", "cli":"mcp reader tools|call", "contract":"TestMCP", "status":"implemented Streamable HTTP adapter", "documentation":"mcp.md"},
+    {"name":"Zread MCP", "cli":"mcp zread tools|call", "contract":"TestMCP", "status":"implemented Streamable HTTP adapter", "documentation":"mcp.md"},
+    {"name":"Agent streaming", "cli":"agent run --events --request-json", "contract":"TestOperationAgentEvents", "status":"implemented; undocumented vendor terminal framing remains unverified", "documentation":"global-api.md"},
+    {"name":"Messages and Responses compatibility", "cli":"messages|responses --request-json", "contract":"TestOperation", "status":"implemented protocol routes; vendor-specific field support unverified", "documentation":"global-api.md"}
+  ]
+}

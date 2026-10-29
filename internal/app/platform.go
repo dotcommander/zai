@@ -1,35 +1,33 @@
+//go:build !windows
+
 package app
 
 import (
 	"context"
 	"errors"
 	"os/exec"
+	"runtime"
 )
 
 // OpenWith opens a file or URL with the system's default handler.
-// On macOS: uses `open`, Linux: `xdg-open`, Windows: `cmd /c start`.
+// On macOS: uses `open`, Linux: `xdg-open`.
 func OpenWith(ctx context.Context, target string) error {
 	cmd, err := buildOpenCommand(ctx, target)
 	if err != nil {
 		return err
 	}
-	return cmd.Start()
+	return cmd.Run()
 }
 
 // buildOpenCommand creates the platform-specific command to open a file/URL.
 // The target argument comes from CLI user input (file paths, URLs) which is intentional.
 func buildOpenCommand(ctx context.Context, target string) (*exec.Cmd, error) {
-	// macOS
-	if _, err := exec.LookPath("open"); err == nil {
-		return exec.CommandContext(ctx, "open", target), nil //nolint:gosec // G204: user-provided target
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.CommandContext(ctx, "open", target), nil //nolint:gosec // G204: the CLI intentionally passes the requested target to the fixed OS opener.
+	case "linux":
+		return exec.CommandContext(ctx, "xdg-open", target), nil //nolint:gosec // G204: the CLI intentionally passes the requested target to the fixed OS opener.
+	default:
+		return nil, errors.New("no platform opener available")
 	}
-	// Linux
-	if _, err := exec.LookPath("xdg-open"); err == nil {
-		return exec.CommandContext(ctx, "xdg-open", target), nil //nolint:gosec // G204: user-provided target
-	}
-	// Windows - note the empty string argument is required for proper parsing
-	if _, err := exec.LookPath("start"); err == nil {
-		return exec.CommandContext(ctx, "cmd", "/c", "start", "", target), nil //nolint:gosec // G204: user-provided target
-	}
-	return nil, errors.New("no platform opener available (need: open, xdg-open, or start)")
 }

@@ -12,7 +12,7 @@ import (
 //nolint:gochecknoglobals // these vars are set by the linker at build time and overridden in tests
 var (
 	// Version is the current version of the application.
-	Version = "0.1.0"
+	Version = "0.2.0"
 
 	// Commit is the git commit hash (first 7 chars).
 	Commit = "unknown"

@@ -229,12 +229,12 @@ func formatSearchTable(results []app.SearchResult, query string, duration time.D
 	for i, result := range results {
 		title := result.Title
 		if len(title) > maxTitleLen {
-			title = title[:maxTitleLen-3] + "..."
+			title = truncate(title, maxTitleLen)
 		}
 
 		domain := domains[i]
 		if len(domain) > maxDomainLen {
-			domain = domain[:maxDomainLen-3] + "..."
+			domain = truncate(domain, maxDomainLen)
 		}
 
 		fmt.Fprintf(&sb, "%-*s  %-*s  %s\n", maxTitleLen, title, maxDomainLen, domain, result.Link)
@@ -243,7 +243,7 @@ func formatSearchTable(results []app.SearchResult, query string, duration time.D
 		if verbose && i < 3 {
 			content := result.Content
 			if len(content) > 100 {
-				content = content[:100] + "..."
+				content = truncate(content, 103)
 			}
 			fmt.Fprintf(&sb, "   %s\n\n", content)
 		}
@@ -281,7 +281,7 @@ func formatSearchDetailed(results []app.SearchResult, query string, duration tim
 		// Content
 		content := strings.ReplaceAll(result.Content, "\n", " ")
 		if len(content) > 300 {
-			content = content[:300] + "..."
+			content = truncate(content, 303)
 		}
 		sb.WriteString("   ")
 		sb.WriteString(content)

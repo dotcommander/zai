@@ -13,7 +13,34 @@ import (
 )
 
 // TranscribeAudio transcribes an audio file using Z.AI's ASR model.
-func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error) { //nolint:gocyclo,funlen
+func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts TranscriptionOptions) (*TranscriptionResponse, error) {
+	if opts.Stream {
+		return c.TranscribeAudioStream(ctx, audioPath, opts, nil)
+	}
+	req, err := c.audioRequest(ctx, audioPath, opts)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer closeBody(resp)
+	if resp.StatusCode != http.StatusOK {
+		return nil, audioResponseError(resp)
+	}
+	var result TranscriptionResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 10*1024*1024)).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	return &result, nil
+}
+
+func audioResponseError(resp *http.Response) error {
+	return providerError(resp)
+}
+
+func (c *Client) audioRequest(ctx context.Context, audioPath string, opts TranscriptionOptions) (*http.Request, error) { //nolint:gocyclo,funlen
 	if err := c.requireAPIKey(); err != nil {
 		return nil, err
 	}
@@ -87,29 +114,5 @@ func (c *Client) TranscribeAudio(ctx context.Context, audioPath string, opts Tra
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
 	req.Header.Set("Accept-Language", "en-US,en")
 
-	c.logger.DebugContext(ctx, "sending audio transcription request", "url", url)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer closeBody(resp)
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("transcription API error: %d - %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var transcriptionResp TranscriptionResponse
-	if err := json.Unmarshal(bodyBytes, &transcriptionResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	c.logger.DebugContext(ctx, "transcription complete", "chars", len(transcriptionResp.Text), "model", transcriptionResp.Model)
-
-	return &transcriptionResp, nil
+	return req, nil
 }

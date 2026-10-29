@@ -1,0 +1,80 @@
+api:
+  key: ""
+  base_url: https://api.z.ai/api/paas/v4
+  coding_base_url: https://api.z.ai/api/coding/paas/v4
+  embedding_base_url: ""
+  coding_plan: false
+  model: glm-4.7
+  image_model: cogview-4-250304
+  video_model: cogvideox-3
+  vision_model: glm-4.6v
+  audio_model: glm-asr-2512
+  tts_model: glm-tts
+  embedding_model: embedding-3
+  rate_limit:
+    requests_per_second: 10
+    burst: 5
+  retry:
+    max_attempts: 3
+    initial_backoff: 1s
+    max_backoff: 30s
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    success_threshold: 2
+    timeout: 60s
+media:
+  max_download_bytes: 536870912
+web_reader:
+  enabled: true
+  timeout: 20
+  cache_enabled: true
+  return_format: markdown
+  auto_detect: true
+  max_content_length: 50000
+web_search:
+  enabled: true
+  default_count: 10
+  default_recency: noLimit
+  language: en
+  timeout: 30
+  cache_enabled: true
+  cache_ttl: 24h
+  search_engine: search_std
+  content_size: medium
+tts:
+  voice: tongtong
+  response_format: wav
+quota:
+  timeout: 10s
+  max_response_bytes: 262144
+  route: /api/monitor/usage/quota/limit
+  approved_hosts:
+    - api.z.ai
+    - open.bigmodel.cn
+    - dev.bigmodel.cn
+  command_help: Show Coding Plan account quota windows
+  heading: Account quota
+  unavailable: Quota unavailable
+  display:
+    badge: ZAI
+    types:
+      time_limit: Time quota
+      tokens_limit: Token quota
+      credit_limit: Credit quota
+    bar_width: 16
+    filled: "━"
+    empty: "─"
+    percent_mark: "%"
+    group_separator: ","
+    duration_hour: h
+    duration_minute: m
+    reset_format: "Mon, 02 Jan 2006 15:04 UTC"
+    indent: "  "
+    gap: "  "
+  labels:
+    used: used
+    limit: limit
+    remaining: remaining
+    duration: duration
+    reset: reset

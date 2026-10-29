@@ -63,7 +63,7 @@ Examples:
   cat audio.wav | zai audio  # From stdin
 
 Supported formats: .wav, .mp3, .mp4, .m4a, .flac, .aac, .ogg
-Maximum file size: 25MB
+Streaming maximum file size: 25 MiB (larger nonstreaming files are chunked)
 Maximum duration: 30 seconds per chunk`,
 	Args: cobra.NoArgs,
 	RunE: runAudioTranscription,
@@ -121,6 +121,9 @@ func checkFFmpeg() error {
 }
 
 func runAudioTranscription(cmd *cobra.Command, args []string) error { //nolint:gocognit,gocyclo // TODO: decompose into smaller functions
+	if audioStream && audioJSON {
+		return errors.New("--stream and --json cannot be combined")
+	}
 	// Use extended timeout for large audio files (10 min for long recordings)
 	ctx, cancel := createContext(10 * time.Minute)
 	defer cancel()
@@ -130,16 +133,23 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error { //nolint:g
 	defer tempMgr.Cleanup()
 
 	// Determine audio source and get audio path
-	audioPath, err := determineAudioSource(ctx)
+	source, err := determineAudioSource(ctx)
 	if err != nil {
 		return err
 	}
-	tempMgr.Add(audioPath)
+	audioPath := source.Path
+	if source.Owned {
+		tempMgr.Add(audioPath)
+	}
 
 	// Validate file exists and get original source path
 	originalSource, err := validateAndGetAudioPath(audioPath)
 	if err != nil {
 		return err
+	}
+
+	if audioStream && shouldChunkFile(audioPath) {
+		return errors.New("streaming audio exceeds 25 MiB; rerun without --stream for chunk processing")
 	}
 
 	// Preprocess audio if needed
@@ -150,6 +160,9 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error { //nolint:g
 
 	// Handle large files by chunking
 	if shouldChunkFile(audioPath) {
+		if audioStream {
+			return errors.New("streaming audio exceeds 25 MiB; rerun without --stream for chunk processing")
+		}
 		return handleLargeAudioFile(ctx, audioPath, originalSource, tempMgr)
 	}
 
@@ -158,33 +171,44 @@ func runAudioTranscription(cmd *cobra.Command, args []string) error { //nolint:g
 }
 
 // determineAudioSource determines the audio source (YouTube, file, or stdin) and returns the path.
-func determineAudioSource(ctx context.Context) (string, error) {
+type audioSource struct {
+	Path  string
+	Owned bool
+}
+
+func determineAudioSource(ctx context.Context) (audioSource, error) {
 	switch {
 	case audioVideo != "":
 		// YouTube source
 		ytPath, err := downloadYouTubeAudio(ctx, audioVideo)
 		if err != nil {
-			return "", fmt.Errorf("YouTube download failed: %w", err)
+			return audioSource{}, fmt.Errorf("YouTube download failed: %w", err)
 		}
-		return ytPath, nil
+		return audioSource{Path: ytPath, Owned: true}, nil
 	case audioFile == "-" || (audioFile == "" && hasStdinData()):
 		// Explicit -f - or auto-detected stdin
 		// Read from stdin and write to temp file
 		stdinPath, _, err := createTempAudioFile()
 		if err != nil {
-			return "", fmt.Errorf("failed to create temp file: %w", err)
+			return audioSource{}, fmt.Errorf("failed to create temp file: %w", err)
 		}
-		return stdinPath, nil
+		return audioSource{Path: stdinPath, Owned: true}, nil
+	case audioFile != "":
+		path, err := sanitizePath(audioFile)
+		if err != nil {
+			return audioSource{}, err
+		}
+		return audioSource{Path: path}, nil
 	default:
-		return "", errors.New("audio file required: use -f <file> or --video <youtube_url>, or pipe via stdin")
+		return audioSource{}, errors.New("audio file required: use -f <file> or --video <youtube_url>, or pipe via stdin")
 	}
 }
 
 // validateAndGetAudioPath validates the audio file exists and returns the original source path.
 func validateAndGetAudioPath(audioPath string) (string, error) {
 	// Validate file exists
-	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
-		return "", fmt.Errorf("audio file not found: %s", audioPath)
+	if _, err := os.Stat(audioPath); err != nil {
+		return "", fmt.Errorf("failed to access audio file %s: %w", audioPath, err)
 	}
 
 	// Save original source path for cache key (before preprocessing)
@@ -261,13 +285,24 @@ func performRegularTranscription(ctx context.Context, audioPath string) error {
 	opts := buildTranscriptionOptions()
 
 	// Perform transcription
-	resp, err := client.TranscribeAudio(ctx, audioPath, opts)
+	var resp *app.TranscriptionResponse
+	var err error
+	if audioStream {
+		resp, err = client.TranscribeAudioStream(ctx, audioPath, opts, func(delta string) {
+			fmt.Print(delta)
+		})
+		fmt.Println()
+	} else {
+		resp, err = client.TranscribeAudio(ctx, audioPath, opts)
+	}
 	if err != nil {
 		return fmt.Errorf("transcription failed: %w", err)
 	}
 
 	// Output results
-	outputTranscriptionResult(resp)
+	if !audioStream {
+		outputTranscriptionResult(resp)
+	}
 
 	// Save to history (non-blocking)
 	saveAudioToHistory(resp)
@@ -505,7 +540,8 @@ func transcribeParallel(ctx context.Context, client *app.Client, chunks []string
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			opts := app.TranscriptionOptions{Model: getModelWithDefault("api.audio_model", "glm-asr-2512"), Prompt: audioPrompt}
+			opts := buildTranscriptionOptions()
+			opts.Stream = false
 
 			for idx := range jobs {
 				var resp *app.TranscriptionResponse

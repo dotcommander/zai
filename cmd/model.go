@@ -67,6 +67,7 @@ func collectConfiguredModels() []configuredModel {
 		key, label string
 	}
 	sources := []entry{
+		{"api.model", "chat"},
 		{"api.image_model", "image"},
 		{"api.video_model", "video"},
 		{"api.vision_model", "vision"},
@@ -90,7 +91,7 @@ func collectConfiguredModels() []configuredModel {
 
 func printModelListTable(apiModels []app.Model, configured []configuredModel) {
 	// Chat models from API
-	fmt.Println("Chat Models (from API):")
+	fmt.Println("Models (from API):")
 	fmt.Println("───────────────────────")
 	if len(apiModels) == 0 {
 		fmt.Println("  (none)")

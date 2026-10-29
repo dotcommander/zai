@@ -15,6 +15,13 @@ type Config struct {
 	WebReader WebReaderConfig `mapstructure:"web_reader"`
 	WebSearch WebSearchConfig `mapstructure:"web_search"`
 	TTS       TTSConfig       `mapstructure:"tts"`
+	Media     MediaConfig     `mapstructure:"media"`
+	Quota     QuotaConfig     `mapstructure:"quota"`
+}
+
+// MediaConfig limits downloaded image and video output.
+type MediaConfig struct {
+	MaxDownloadBytes int64 `mapstructure:"max_download_bytes"`
 }
 
 // APIConfig holds API connection settings.
@@ -93,11 +100,18 @@ func Load() (*Config, error) {
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unable to decode config: %w", err)
 	}
+	if cfg.Quota.Timeout <= 0 || cfg.Quota.MaxResponseBytes <= 0 || cfg.Quota.MaxResponseBytes > 10485760 {
+		return nil, fmt.Errorf("quota bounds must be positive and response ceiling at most 10485760 bytes")
+	}
+	if cfg.Media.MaxDownloadBytes <= 0 {
+		return nil, fmt.Errorf("media.max_download_bytes must be positive")
+	}
 	return &cfg, nil
 }
 
 // SetDefaults sets default values
 func SetDefaults() {
+	SetQuotaDefaults()
 	viper.SetDefault("api.base_url", "https://api.z.ai/api/paas/v4")
 	viper.SetDefault("api.coding_base_url", "https://api.z.ai/api/coding/paas/v4")
 	viper.SetDefault("api.embedding_base_url", "")
@@ -108,7 +122,8 @@ func SetDefaults() {
 	viper.SetDefault("api.vision_model", "glm-4.6v")
 	viper.SetDefault("api.audio_model", "glm-asr-2512")
 	viper.SetDefault("api.tts_model", "glm-tts")
-	viper.SetDefault("api.embedding_model", "glm-4.7")
+	viper.SetDefault("api.embedding_model", "embedding-3")
+	viper.SetDefault("media.max_download_bytes", int64(536870912))
 
 	// Rate limit defaults
 	viper.SetDefault("api.rate_limit.requests_per_second", 10)

@@ -7,6 +7,7 @@ A fast, feature-rich CLI for [Z.AI](https://z.ai) GLM models.
 ## Features
 
 - **Chat** - Interactive REPL with conversation context
+- **Account quota** - Read Coding Plan usage windows without model generation
 - **Web Search** - Search the web and get AI-summarized results
 - **Web Reader** - Fetch and analyze web content
 - **Image Generation** - AI-enhanced prompts with auto-download
@@ -49,6 +50,15 @@ api:
 ```
 
 ## Usage
+
+### Account quota
+
+```bash
+zai usage
+zai usage --json
+```
+
+Uses the configured API key and approved HTTPS provider origin only. Quota availability depends on account entitlement and the provider monitoring endpoint; it does not generate a chat response.
 
 ### Chat
 
@@ -144,9 +154,11 @@ Always outputs JSON embedding vectors.
 
 ```bash
 zai video "A cat playing"
-zai video -f img.jpg "Animate this"
-zai video -f first.jpg -f last.jpg "transition"
+zai video -f https://example.com/image.jpg "Animate this"
+zai video -f https://example.com/first.jpg -f https://example.com/last.jpg "transition"
 ```
+
+Image inputs must be absolute HTTP(S) URLs; local image files are unsupported.
 
 Videos are saved as `zai-video-{timestamp}.mp4`. Generation takes 1-3 minutes.
 
@@ -157,6 +169,36 @@ zai "What is 2+2?" --json
 zai search "query" --json
 zai history --json
 ```
+
+## Full API requests
+
+Use `--request-json FILE` (or `-` for stdin) on chat, vision, image,
+video, audio, search, and reader to preserve all request fields and receive
+complete JSON responses with `--json`. Ordinary output extracts text, URLs, or
+task identifiers. Explicitly supplied supported flags override matching
+JSON fields; ordinary flag defaults do not. Positional prompts also override
+matching JSON prompt/message fields.
+
+```bash
+zai chat --request-json chat.json --json
+cat chat.json | zai chat --request-json - --events
+zai image --async --request-json image.json --wait --wait-timeout 3m --poll-interval 2s
+zai task get TASK_ID
+zai tokenize --request-json tokenizer.json
+zai files upload document.pdf --purpose user_data
+```
+
+`--events` emits SSE events as NDJSON with `event`, `data`, and an optional
+`id`. See [Global API coverage](docs/global-api.md) for all routes, multipart
+requests, async workflows, protocol compatibility limits, and the checked-in
+operation/field inventory. TTS, embeddings, and model convenience commands
+remain available; omission from the current global OpenAPI does not establish
+that their endpoints are unavailable.
+
+Discover available MCP tools with `zai mcp search tools`, then invoke one with
+`zai mcp search call TOOL --request-json arguments.json`. See [MCP commands](docs/mcp.md)
+for all four products and local Vision runtime requirements. Chat tool streaming
+is available through `--tool-stream`.
 
 ## Commands
 
@@ -173,6 +215,14 @@ zai history --json
 | `embed` | Generate text embeddings |
 | `history` | View chat history |
 | `model` | Model management |
+| `task get` | Retrieve an asynchronous image/video task |
+| `tokenize` | Token counting |
+| `layout` | Document layout parsing |
+| `files upload` | Upload a file |
+| `agent run/result/conversation` | Agent requests and results |
+| `responses` / `messages` | Protocol compatibility JSON requests |
+| `api` | Execute a registered operation |
+| `mcp vision/search/reader/zread tools/call` | Discover and invoke Coding Plan MCP tools |
 
 ## Flags
 
@@ -205,7 +255,7 @@ See [docs/documentation.md](docs/documentation.md) for the full documentation in
 
 ## Requirements
 
-- Go 1.22+
+- Go 1.25.4+ (the version declared in `go.mod`)
 - Z.AI API key
 
 ## License

@@ -67,3 +67,5 @@ zai image "sunset" -m cogview-4-250304
 | `-m <model>` | Override the image model |
 
 For model configuration defaults, see the [configuration documentation](/docs/configuration#api-settings).
+
+Downloads default to a 512 MiB limit. Override with `--max-download-bytes <positive bytes>`, `ZAI_MEDIA_MAX_DOWNLOAD_BYTES`, or `media.max_download_bytes` in configuration. Failed downloads preserve an existing destination.

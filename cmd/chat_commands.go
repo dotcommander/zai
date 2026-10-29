@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"errors"
+	"io"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -11,21 +13,32 @@ import (
 // Message types for bubbletea.
 
 type tokenMsg string
+type turnTokenMsg struct {
+	turn  uint64
+	token string
+}
 
 type streamDoneMsg struct {
+	turn  uint64
+	model string
 	input string
 	usage app.Usage
 }
 
-type streamErrMsg struct{ err error }
+type streamErrMsg struct {
+	turn uint64
+	err  error
+}
 
 type searchResultMsg struct {
+	turn    uint64
 	results *app.WebSearchResponse
 	query   string
 	err     error
 }
 
 type webContentMsg struct {
+	turn uint64
 	resp *app.WebReaderResponse
 	url  string
 	err  error
@@ -34,14 +47,15 @@ type webContentMsg struct {
 // streamChans holds the two channels needed for streaming: tokens for
 // incremental display, and done for metadata after completion.
 type streamChans struct {
+	turn   uint64
 	tokens chan string
-	done   chan streamDoneMsg
+	done   chan tea.Msg
 }
 
 func newStreamChans() streamChans {
 	return streamChans{
 		tokens: make(chan string, 64),
-		done:   make(chan streamDoneMsg, 1),
+		done:   make(chan tea.Msg, 1),
 	}
 }
 
@@ -51,8 +65,9 @@ func launchStream(ctx context.Context, client *app.Client, input string, opts ap
 	return func() tea.Msg {
 		reader, err := client.StreamChat(ctx, input, opts)
 		if err != nil {
+			sc.done <- streamErrMsg{turn: sc.turn, err: err}
 			close(sc.tokens)
-			return streamErrMsg{err: err}
+			return nil
 		}
 		drainStream(ctx, reader, sc, input)
 		return nil
@@ -63,12 +78,25 @@ func launchStream(ctx context.Context, client *app.Client, input string, opts ap
 // then sends the done message. Caller must not close sc.tokens.
 func drainStream(ctx context.Context, reader *app.StreamReader, sc streamChans, input string) {
 	go func() {
-		defer close(sc.tokens)
+		// The request context or reader completion terminates this producer.
+		terminal := tea.Msg(streamDoneMsg{turn: sc.turn, model: reader.Model(), input: input})
+		defer func() {
+			if ctx.Err() != nil {
+				terminal = streamErrMsg{turn: sc.turn, err: ctx.Err()}
+			}
+			sc.done <- terminal
+			close(sc.tokens)
+		}()
 		defer reader.Close() //nolint:errcheck // best-effort
 		for {
 			token, err := reader.Next()
 			if err != nil {
-				break
+				if errors.Is(err, io.EOF) {
+					terminal = streamDoneMsg{turn: sc.turn, model: reader.Model(), input: input, usage: reader.StreamUsage()}
+				} else {
+					terminal = streamErrMsg{turn: sc.turn, err: err}
+				}
+				return
 			}
 			select {
 			case sc.tokens <- token:
@@ -76,7 +104,6 @@ func drainStream(ctx context.Context, reader *app.StreamReader, sc streamChans, 
 				return
 			}
 		}
-		sc.done <- streamDoneMsg{input: input, usage: reader.StreamUsage()}
 	}()
 }
 
@@ -88,6 +115,9 @@ func waitForToken(sc streamChans) tea.Cmd {
 		if !ok {
 			return <-sc.done
 		}
+		if sc.turn != 0 {
+			return turnTokenMsg{turn: sc.turn, token: tok}
+		}
 		return tokenMsg(tok)
 	}
 }
@@ -98,8 +128,9 @@ func launchSearchAugmentedStream(ctx context.Context, client *app.Client, input 
 
 		reader, err := client.StreamChat(ctx, messageToSend, opts)
 		if err != nil {
+			sc.done <- streamErrMsg{turn: sc.turn, err: err}
 			close(sc.tokens)
-			return streamErrMsg{err: err}
+			return nil
 		}
 		drainStream(ctx, reader, sc, messageToSend)
 		return nil
@@ -107,18 +138,26 @@ func launchSearchAugmentedStream(ctx context.Context, client *app.Client, input 
 }
 
 // doSearch performs a web search asynchronously.
-func doSearch(ctx context.Context, client *app.Client, query string, opts app.SearchOptions) tea.Cmd {
+func doSearch(ctx context.Context, client *app.Client, query string, opts app.SearchOptions, turns ...uint64) tea.Cmd {
 	return func() tea.Msg {
 		results, err := client.SearchWeb(ctx, query, opts)
-		return searchResultMsg{results: results, query: query, err: err}
+		var turn uint64
+		if len(turns) > 0 {
+			turn = turns[0]
+		}
+		return searchResultMsg{turn: turn, results: results, query: query, err: err}
 	}
 }
 
 // doWebFetch fetches web content asynchronously.
-func doWebFetch(ctx context.Context, client *app.Client, url string) tea.Cmd {
+func doWebFetch(ctx context.Context, client *app.Client, url string, turns ...uint64) tea.Cmd {
 	return func() tea.Msg {
 		webOpts := &app.WebReaderOptions{ReturnFormat: "markdown"}
 		resp, err := client.FetchWebContent(ctx, url, webOpts)
-		return webContentMsg{resp: resp, url: url, err: err}
+		var turn uint64
+		if len(turns) > 0 {
+			turn = turns[0]
+		}
+		return webContentMsg{turn: turn, resp: resp, url: url, err: err}
 	}
 }
