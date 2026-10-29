@@ -1,0 +1,509 @@
+{
+  "retrieved_at": "2026-10-28T23:53:20+00:00",
+  "scope": "Public text documentation from llms.txt, llms-full.txt source sections, sitemap, plus explicit Coding Plan integrations and MCP guides. No media/assets or authenticated content.",
+  "files": [
+    {
+      "path": "llms-index.md",
+      "source_url": "https://docs.z.ai/llms.txt",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 8981,
+      "sha256": "9e19db422d2dd97c4448ced0eaf5684421411f27fc2cd5150153dd04cbb31e3c"
+    },
+    {
+      "path": "llms-full.md",
+      "source_url": "https://docs.z.ai/llms-full.txt",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 587102,
+      "sha256": "6fa5922cc1aa5525d548b56bc2c9f276e4024373c2541a1b109ae0013a883e08"
+    },
+    {
+      "path": "sitemap.xml",
+      "source_url": "https://docs.z.ai/sitemap.xml",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 8664,
+      "sha256": "d757cf5a77cc8cb301aa2e9e22dfec9444977f2caddd74f6c1c460148fbb8c34"
+    },
+    {
+      "path": "pages/api-reference/agents/agent-conversation.md",
+      "source_url": "https://docs.z.ai/api-reference/agents/agent-conversation.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5392,
+      "sha256": "659741bbddea8361078f16ccc7c4e3f84ab40bf9acbe38ba794b79b8f39b9ad0"
+    },
+    {
+      "path": "pages/api-reference/agents/agent.md",
+      "source_url": "https://docs.z.ai/api-reference/agents/agent.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 26321,
+      "sha256": "9d707d34691cfdb85d504751a3a81a2cf79d429fad2d36c85b6b71f28aeba2c8"
+    },
+    {
+      "path": "pages/api-reference/agents/file-upload.md",
+      "source_url": "https://docs.z.ai/api-reference/agents/file-upload.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 3984,
+      "sha256": "0ce323aaaba1bed7885a0ad4ee57bd9b97d2926295f9cf6c9aa91e0441be5d99"
+    },
+    {
+      "path": "pages/api-reference/agents/get-async-result.md",
+      "source_url": "https://docs.z.ai/api-reference/agents/get-async-result.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 4609,
+      "sha256": "64adf7d5bbb9119a7209cb8ffd95335edcbc66f615a458d3b9a3dee78aaf4326"
+    },
+    {
+      "path": "pages/api-reference/api-code.md",
+      "source_url": "https://docs.z.ai/api-reference/api-code.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5208,
+      "sha256": "863aaf0d8a7b3309e71056a5ea786a2c889d985fb65a607459a12771291446f5"
+    },
+    {
+      "path": "pages/api-reference/audio/audio-transcriptions.md",
+      "source_url": "https://docs.z.ai/api-reference/audio/audio-transcriptions.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6475,
+      "sha256": "7b85cd2bb0a692102608aceb490258ca550ec9a559214f592b7eb746057047f0"
+    },
+    {
+      "path": "pages/api-reference/image/generate-image-async.md",
+      "source_url": "https://docs.z.ai/api-reference/image/generate-image-async.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5217,
+      "sha256": "049b1db2b4fbd2b90e2c66d4ad582cd5dd9c50aa75398da56370c44118f8abb2"
+    },
+    {
+      "path": "pages/api-reference/image/generate-image.md",
+      "source_url": "https://docs.z.ai/api-reference/image/generate-image.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6496,
+      "sha256": "49735a8b4b1731eb6f330cb3ce5b539ebdf43ae109a000d0d8b0b29757dd1214"
+    },
+    {
+      "path": "pages/api-reference/image/get-image-status.md",
+      "source_url": "https://docs.z.ai/api-reference/image/get-image-status.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 4565,
+      "sha256": "3477068ea4d31eb233008c40e7786e80104690b2a9aec925e591af73cbd36a49"
+    },
+    {
+      "path": "pages/api-reference/introduction.md",
+      "source_url": "https://docs.z.ai/api-reference/introduction.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 7721,
+      "sha256": "b819b235a5ba9101fd57e1b3f652893f5f563d1abace9baef575c883f2c8548a"
+    },
+    {
+      "path": "pages/api-reference/llm/chat-completion.md",
+      "source_url": "https://docs.z.ai/api-reference/llm/chat-completion.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 42517,
+      "sha256": "983acca8656acdc9507778b72a8f4f5085c461aaaf52d23863d7203dd5187878"
+    },
+    {
+      "path": "pages/api-reference/tools/layout-parsing.md",
+      "source_url": "https://docs.z.ai/api-reference/tools/layout-parsing.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 8353,
+      "sha256": "b12e2601a6982eb4681c69ce2cb22043fd41a88aaf4cb55e7e38c2299bd9720c"
+    },
+    {
+      "path": "pages/api-reference/tools/tokenizer.md",
+      "source_url": "https://docs.z.ai/api-reference/tools/tokenizer.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 13351,
+      "sha256": "d0feb016a06ee5b41e13b7aae6bc0746cbc2c5d23c194c6d56df7af62af4f8ba"
+    },
+    {
+      "path": "pages/api-reference/tools/web-reader.md",
+      "source_url": "https://docs.z.ai/api-reference/tools/web-reader.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6024,
+      "sha256": "bf2b4609b55ffff3af7ade4798901a5bdf445d3297bb8d99e48a1d0886408776"
+    },
+    {
+      "path": "pages/api-reference/tools/web-search.md",
+      "source_url": "https://docs.z.ai/api-reference/tools/web-search.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6413,
+      "sha256": "2ade723e8e4346a50ab46712d44a85515c5a4f74427a5b41fbc5c330e2478823"
+    },
+    {
+      "path": "pages/api-reference/video/generate-video.md",
+      "source_url": "https://docs.z.ai/api-reference/video/generate-video.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 9356,
+      "sha256": "37858eaa9a2f11009c66347145fd97b5fc8918634e2823feee7d0eaee9d0d92e"
+    },
+    {
+      "path": "pages/api-reference/video/get-video-status.md",
+      "source_url": "https://docs.z.ai/api-reference/video/get-video-status.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 4565,
+      "sha256": "3477068ea4d31eb233008c40e7786e80104690b2a9aec925e591af73cbd36a49"
+    },
+    {
+      "path": "pages/devpack/credit-campaign-rules.md",
+      "source_url": "https://docs.z.ai/devpack/credit-campaign-rules.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 10384,
+      "sha256": "2f466e0735048e788ee5010304bba7ad6e386f5cbfa2d023cb560cff926c27a7"
+    },
+    {
+      "path": "pages/devpack/extension/coding-tool-helper.md",
+      "source_url": "https://docs.z.ai/devpack/extension/coding-tool-helper.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6119,
+      "sha256": "6a8948385fbcc925e5451fbd2523f1dd7be8e770cfa4019bcf8d5dec0c85822c"
+    },
+    {
+      "path": "pages/devpack/faq.md",
+      "source_url": "https://docs.z.ai/devpack/faq.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 9847,
+      "sha256": "ebf618b9797d7d8d3d4685fc0416ddf779fb91fe86aa88aae4a1eba3d4e8bf3c"
+    },
+    {
+      "path": "pages/devpack/latest-model.md",
+      "source_url": "https://docs.z.ai/devpack/latest-model.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5712,
+      "sha256": "8465b60a1e134c7feceaee41c581343e4af3d18b8f32e7837bdc92149118838c"
+    },
+    {
+      "path": "pages/devpack/mcp/reader-mcp-server.md",
+      "source_url": "https://docs.z.ai/devpack/mcp/reader-mcp-server.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 7273,
+      "sha256": "00a26c06f5b7b2fcec50d0d224897452e07fc89d201d32654ca45cf474c37a40"
+    },
+    {
+      "path": "pages/devpack/mcp/search-mcp-server.md",
+      "source_url": "https://docs.z.ai/devpack/mcp/search-mcp-server.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6498,
+      "sha256": "80f4a4ca4aa213d183bb07f9d40248bee6b70045cfde7cff47bb6d7781dac122"
+    },
+    {
+      "path": "pages/devpack/mcp/vision-mcp-server.md",
+      "source_url": "https://docs.z.ai/devpack/mcp/vision-mcp-server.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 8959,
+      "sha256": "3b83ca35640b23274199ade1516435e8353a1dbbe30da95490f515815e0f79b1"
+    },
+    {
+      "path": "pages/devpack/mcp/zread-mcp-server.md",
+      "source_url": "https://docs.z.ai/devpack/mcp/zread-mcp-server.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 7313,
+      "sha256": "614e5e06e07029a149086159d8a8c98a4561a45965771c07693bfd53c8b1edd0"
+    },
+    {
+      "path": "pages/devpack/notice/api-key-management.md",
+      "source_url": "https://docs.z.ai/devpack/notice/api-key-management.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 7529,
+      "sha256": "5e487aa8e2f99171733f112c558610a0fbe0a24a101a9411453a6cd26eb866e7"
+    },
+    {
+      "path": "pages/devpack/notice/usage-revision.md",
+      "source_url": "https://docs.z.ai/devpack/notice/usage-revision.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 8178,
+      "sha256": "9c58e3ff3923e18ab953d95f923ddba57472ad8b12043fb1918617072349caf9"
+    },
+    {
+      "path": "pages/devpack/overview.md",
+      "source_url": "https://docs.z.ai/devpack/overview.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 7150,
+      "sha256": "a0c5d33dd02c80cc9e1d4635f7a744725dbfdac32960ba8b587c4fdcf1ca5183"
+    },
+    {
+      "path": "pages/devpack/quick-start.md",
+      "source_url": "https://docs.z.ai/devpack/quick-start.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 4969,
+      "sha256": "b48f6e0ffb5b82fc98376d0488bdd5bfe66e48f4828b3cc682138af75f5b119d"
+    },
+    {
+      "path": "pages/devpack/resources/best-practice.md",
+      "source_url": "https://docs.z.ai/devpack/resources/best-practice.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 19108,
+      "sha256": "fa2b5fb9252228258d22e3799353b41ab0180823709d1eaf1f43536cca968e61"
+    },
+    {
+      "path": "pages/devpack/resources/memory-mechanism.md",
+      "source_url": "https://docs.z.ai/devpack/resources/memory-mechanism.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 19301,
+      "sha256": "58017654702700d4aaf53fc4706d63866d49879b3e75b4d65b7c1560a1a96795"
+    },
+    {
+      "path": "pages/devpack/teamplan.md",
+      "source_url": "https://docs.z.ai/devpack/teamplan.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 10269,
+      "sha256": "39d08ccee439f8aa796d2748b05f43fc1a408812dc953d884602817dcc8dd25a"
+    },
+    {
+      "path": "pages/devpack/tool/claude.md",
+      "source_url": "https://docs.z.ai/devpack/tool/claude.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6413,
+      "sha256": "e1cc0551623276a436aa2f230c9d11719bcee08099e84a0c352c8ccc3ef9b0a5"
+    },
+    {
+      "path": "pages/devpack/tool/codex.md",
+      "source_url": "https://docs.z.ai/devpack/tool/codex.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6759,
+      "sha256": "6c7d99161dafd173e305f4fd8da667a68dc16d808b1279cce25ad7f2bd6039a1"
+    },
+    {
+      "path": "pages/devpack/tool/others.md",
+      "source_url": "https://docs.z.ai/devpack/tool/others.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5611,
+      "sha256": "91eebd4636b64aa1a52e5e2131c979e7984b348b9f7296d6aece5583d06cc412"
+    },
+    {
+      "path": "pages/devpack/transition.md",
+      "source_url": "https://docs.z.ai/devpack/transition.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5323,
+      "sha256": "14e37269e96a98d4cb75b94840b98c4eb276653bd0b955cba411d32f1303207e"
+    },
+    {
+      "path": "pages/devpack/usage-policy.md",
+      "source_url": "https://docs.z.ai/devpack/usage-policy.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 3979,
+      "sha256": "aeb5cee4f278af7f7f5cbd21ba4a2f0301545109723de232e8aceb5943e0a25b"
+    },
+    {
+      "path": "pages/guides/agents/slide.md",
+      "source_url": "https://docs.z.ai/guides/agents/slide.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 3804,
+      "sha256": "16b4bd8850b365970b8f7bf8670aef431ce04b5affbc4352be67c2563109227a"
+    },
+    {
+      "path": "pages/guides/agents/translation.md",
+      "source_url": "https://docs.z.ai/guides/agents/translation.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 11043,
+      "sha256": "f5ed0a1ec6db69f3398599b7d893217686db366bd318535cbf1d1d65e01a2aa0"
+    },
+    {
+      "path": "pages/guides/agents/video-template.md",
+      "source_url": "https://docs.z.ai/guides/agents/video-template.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6560,
+      "sha256": "67e230f0c34374b24aa02819aca61a4c736a6abbad317ed281db6e8211246732"
+    },
+    {
+      "path": "pages/guides/capabilities/cache.md",
+      "source_url": "https://docs.z.ai/guides/capabilities/cache.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 16208,
+      "sha256": "c387af84d845a6594ac4398ad4a143222663db095ff04b38c513dc3759925665"
+    },
+    {
+      "path": "pages/guides/capabilities/function-calling.md",
+      "source_url": "https://docs.z.ai/guides/capabilities/function-calling.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 18237,
+      "sha256": "d9569f31ef4ae5f3740478587297594ca6bef31820e55ed221767de80ff95ae5"
+    },
+    {
+      "path": "pages/guides/capabilities/stream-tool.md",
+      "source_url": "https://docs.z.ai/guides/capabilities/stream-tool.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5001,
+      "sha256": "50380b4279b959ff90b31a8785e63ead6a89c944f574ea82cb058152dc7ad5be"
+    },
+    {
+      "path": "pages/guides/capabilities/streaming.md",
+      "source_url": "https://docs.z.ai/guides/capabilities/streaming.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 4390,
+      "sha256": "d4b4ae879350ee4df6f7a9697bfd75b34479a7ef8a34a9b289f5519f443db1ce"
+    },
+    {
+      "path": "pages/guides/capabilities/struct-output.md",
+      "source_url": "https://docs.z.ai/guides/capabilities/struct-output.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 32888,
+      "sha256": "a74487faed1b1d9a40ba7849dc036313c2ea0d61b26ab9757d01215e99baa262"
+    },
+    {
+      "path": "pages/guides/capabilities/thinking-mode.md",
+      "source_url": "https://docs.z.ai/guides/capabilities/thinking-mode.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 6970,
+      "sha256": "1ec1fc9966bf449fc6241fe31bbb9b16964144f5f17d79c4b47cd1a4ea6f53e6"
+    },
+    {
+      "path": "pages/guides/capabilities/thinking.md",
+      "source_url": "https://docs.z.ai/guides/capabilities/thinking.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 10916,
+      "sha256": "5ab9b1efa5e74d5a548a4b0bfc4366561058fa03be8a2f9297bae6f9756f0b7f"
+    },
+    {
+      "path": "pages/guides/develop/http/introduction.md",
+      "source_url": "https://docs.z.ai/guides/develop/http/introduction.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 9079,
+      "sha256": "3e603a93215d99f045c2d3a33f000d91f8f78401232bd51b5057faf1eda07c0a"
+    },
+    {
+      "path": "pages/guides/develop/java/introduction.md",
+      "source_url": "https://docs.z.ai/guides/develop/java/introduction.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 14278,
+      "sha256": "4acf5b496456d1282088f65b661ca836d62e3616f97bb3d0778db5312272f5bf"
+    },
+    {
+      "path": "pages/guides/develop/langchain/introduction.md",
+      "source_url": "https://docs.z.ai/guides/develop/langchain/introduction.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 7896,
+      "sha256": "3c303d927e4d75b4a4ae3f77610d2a8606d55f29a8cedd18b2341ea6c094bebe"
+    },
+    {
+      "path": "pages/guides/develop/openai/python.md",
+      "source_url": "https://docs.z.ai/guides/develop/openai/python.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 10449,
+      "sha256": "d077bf251986f7130d34d8d97481ed0ed05873b44d0b3b1f6a64f31aa039ab26"
+    },
+    {
+      "path": "pages/guides/develop/python/introduction.md",
+      "source_url": "https://docs.z.ai/guides/develop/python/introduction.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 13396,
+      "sha256": "a9558979cd572c52c6520d7154d5243e322c929292165c3e3bbec9778edabde2"
+    },
+    {
+      "path": "pages/guides/llm/glm-5.2.md",
+      "source_url": "https://docs.z.ai/guides/llm/glm-5.2.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 23178,
+      "sha256": "10d9c0f973092e3feed368604220c10bfc775efdfbe807c35f315dbe69936a7c"
+    },
+    {
+      "path": "pages/guides/llm/glm-5.3.md",
+      "source_url": "https://docs.z.ai/guides/llm/glm-5.3.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 22029,
+      "sha256": "c2182fdb62d0a92d76d9b59551b3154319ebfb38d05af94aa960d776c625dcd4"
+    },
+    {
+      "path": "pages/guides/overview/concept-param.md",
+      "source_url": "https://docs.z.ai/guides/overview/concept-param.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 8813,
+      "sha256": "8756407e951ecc3d5401cb899373c8b13dee64de51dcb01e4a4895d86fe6a0ef"
+    },
+    {
+      "path": "pages/guides/overview/migrate-to-glm-new.md",
+      "source_url": "https://docs.z.ai/guides/overview/migrate-to-glm-new.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 7649,
+      "sha256": "f639af829fc851bc6a1743d17437a6dad1918602f7df3b7516328b51f68edcfa"
+    },
+    {
+      "path": "pages/guides/overview/overview.md",
+      "source_url": "https://docs.z.ai/guides/overview/overview.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5267,
+      "sha256": "6f2bad863abd31652a57b55e225730726598807264a7d616b884d0b44abf9289"
+    },
+    {
+      "path": "pages/guides/overview/pricing.md",
+      "source_url": "https://docs.z.ai/guides/overview/pricing.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 3010,
+      "sha256": "33a372c40dc41ea671512a575590cdd218e648897e4b4dce9caa49fc7dc0e205"
+    },
+    {
+      "path": "pages/guides/overview/quick-start.md",
+      "source_url": "https://docs.z.ai/guides/overview/quick-start.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 8670,
+      "sha256": "ee725fe9fb78d0f58c81ff887a932f48b7a23f701476e905389ca057376135cd"
+    },
+    {
+      "path": "pages/guides/tools/stream-tool.md",
+      "source_url": "https://docs.z.ai/guides/tools/stream-tool.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5075,
+      "sha256": "f7ba1c881f576896dfd871408c1069eda40eb3a5d6ec449eae6d8beba1fa3ec5"
+    },
+    {
+      "path": "pages/guides/tools/web-search.md",
+      "source_url": "https://docs.z.ai/guides/tools/web-search.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 50322,
+      "sha256": "d76155362a759d899c7dcc396586da99534fb9d5476dd1644f083afd55695e14"
+    },
+    {
+      "path": "pages/guides/vlm/glm-5.3-flash.md",
+      "source_url": "https://docs.z.ai/guides/vlm/glm-5.3-flash.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 27319,
+      "sha256": "529ffcfd3fb135e5d43268c32afdbf37477f5cd70576fa0b7996a766ee7cd1e3"
+    },
+    {
+      "path": "pages/help/faq.md",
+      "source_url": "https://docs.z.ai/help/faq.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 1850,
+      "sha256": "f3989c87449e0bd5cea15b9d15f93995dbf394d5d626f2b14042ff3689e3972b"
+    },
+    {
+      "path": "pages/legal-agreement/privacy-policy.md",
+      "source_url": "https://docs.z.ai/legal-agreement/privacy-policy.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 26466,
+      "sha256": "c74f07e6ee2970daf741d1e58ed858c93f263065d6a843dbef92072812c8aedd"
+    },
+    {
+      "path": "pages/legal-agreement/subscription-terms.md",
+      "source_url": "https://docs.z.ai/legal-agreement/subscription-terms.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 8991,
+      "sha256": "12f47761258d9f95051b4e5259af1c77cc26367e6a13629d014ec94014646c3d"
+    },
+    {
+      "path": "pages/legal-agreement/terms-of-use.md",
+      "source_url": "https://docs.z.ai/legal-agreement/terms-of-use.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 53605,
+      "sha256": "e9cc402e2c76ad318d2732c83a1f3b85d6e5b797e3ebbed51709229cb3dc6a44"
+    },
+    {
+      "path": "pages/release-notes/new-released.md",
+      "source_url": "https://docs.z.ai/release-notes/new-released.md",
+      "retrieved_at": "2026-10-28T23:53:20+00:00",
+      "bytes": 5161,
+      "sha256": "b8c6fd0aca992008fe4fae82f4c20f96164e6abdd8af78ced9bc360e06434b1b"
+    },
+    {
+      "path": "pages/guides/capabilities/mcp-call.md",
+      "source_url": "https://docs.z.ai/guides/capabilities/mcp-call.md",
+      "retrieved_at": "2026-10-29T00:03:04+00:00",
+      "bytes": 8738,
+      "sha256": "557eb528fe5a6286ad02157c8c89b0fad2e0aa36ffaa438d488e412f47ca0ee5"
+    }
+  ],
+  "failed_pages": [
+    {
+      "url": "https://docs.z.ai/api-reference/rate-limit.md",
+      "error": "Off-site redirect: https://z.ai/manage-apikey/rate-limits"
+    }
+  ]
+}

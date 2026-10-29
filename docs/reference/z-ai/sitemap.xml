@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1">
+    
+  <url>
+    <loc>https://docs.z.ai/api-reference/agents/agent</loc>
+    <lastmod>2026-01-28T15:46:24.795Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/agents/agent-conversation</loc>
+    <lastmod>2026-01-28T15:46:24.786Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/agents/file-upload</loc>
+    <lastmod>2026-08-27T12:54:12.109Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/agents/get-async-result</loc>
+    <lastmod>2026-01-28T15:46:24.790Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/api-code</loc>
+    <lastmod>2026-10-21T14:19:45.158Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/audio/audio-transcriptions</loc>
+    <lastmod>2026-01-28T15:46:24.797Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/image/generate-image</loc>
+    <lastmod>2026-01-28T15:46:24.798Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/image/generate-image-async</loc>
+    <lastmod>2026-01-28T15:46:24.799Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/image/get-image-status</loc>
+    <lastmod>2026-01-28T15:46:24.792Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/introduction</loc>
+    <lastmod>2026-10-21T14:19:45.149Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/llm/chat-completion</loc>
+    <lastmod>2026-01-28T15:46:24.860Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/tools/layout-parsing</loc>
+    <lastmod>2026-02-02T16:26:04.382Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/tools/tokenizer</loc>
+    <lastmod>2026-01-28T15:46:24.868Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/tools/web-reader</loc>
+    <lastmod>2026-01-28T15:46:24.866Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/tools/web-search</loc>
+    <lastmod>2026-01-28T15:46:24.864Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/video/generate-video</loc>
+    <lastmod>2026-08-28T08:35:24.656Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/api-reference/video/get-video-status</loc>
+    <lastmod>2026-01-28T15:46:24.873Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/credit-campaign-rules</loc>
+    <lastmod>2026-10-21T14:19:45.147Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/extension/coding-tool-helper</loc>
+    <lastmod>2026-10-21T14:19:45.149Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/faq</loc>
+    <lastmod>2026-10-21T14:19:45.157Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/latest-model</loc>
+    <lastmod>2026-10-21T14:19:45.152Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/mcp/reader-mcp-server</loc>
+    <lastmod>2026-10-21T14:19:45.151Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/mcp/search-mcp-server</loc>
+    <lastmod>2026-10-21T14:19:45.156Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/mcp/vision-mcp-server</loc>
+    <lastmod>2026-10-21T14:19:45.150Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/mcp/zread-mcp-server</loc>
+    <lastmod>2026-10-21T14:19:45.148Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/notice/api-key-management</loc>
+    <lastmod>2026-10-16T12:56:56.562Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/notice/usage-revision</loc>
+    <lastmod>2026-10-09T03:48:46.685Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/overview</loc>
+    <lastmod>2026-10-21T14:19:42.157Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/quick-start</loc>
+    <lastmod>2026-10-21T14:19:42.158Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/resources/best-practice</loc>
+    <lastmod>2026-03-25T10:40:24.330Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/resources/memory-mechanism</loc>
+    <lastmod>2026-10-21T14:19:42.159Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/teamplan</loc>
+    <lastmod>2026-10-16T12:56:55.227Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/tool/others</loc>
+    <lastmod>2026-10-21T14:19:42.162Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/transition</loc>
+    <lastmod>2026-10-21T14:19:42.154Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/devpack/usage-policy</loc>
+    <lastmod>2026-10-21T14:19:42.164Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/agents/slide</loc>
+    <lastmod>2026-01-28T15:46:25.445Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/agents/translation</loc>
+    <lastmod>2026-10-21T14:19:42.155Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/agents/video-template</loc>
+    <lastmod>2026-10-21T14:19:42.153Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/capabilities/cache</loc>
+    <lastmod>2026-10-21T14:19:42.163Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/capabilities/function-calling</loc>
+    <lastmod>2026-10-21T14:19:42.165Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/capabilities/stream-tool</loc>
+    <lastmod>2026-10-21T14:19:40.197Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/capabilities/streaming</loc>
+    <lastmod>2026-10-21T14:19:40.200Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/capabilities/struct-output</loc>
+    <lastmod>2026-10-21T14:19:42.161Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/capabilities/thinking</loc>
+    <lastmod>2026-10-21T14:19:42.152Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/capabilities/thinking-mode</loc>
+    <lastmod>2026-10-21T14:19:42.158Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/develop/http/introduction</loc>
+    <lastmod>2026-10-21T14:19:42.155Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/develop/java/introduction</loc>
+    <lastmod>2026-10-21T14:19:40.199Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/develop/langchain/introduction</loc>
+    <lastmod>2026-10-21T14:19:40.196Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/develop/openai/python</loc>
+    <lastmod>2026-10-21T14:19:40.198Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/develop/python/introduction</loc>
+    <lastmod>2026-10-21T14:19:42.164Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/llm/glm-5.2</loc>
+    <lastmod>2026-10-21T14:19:39.869Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/llm/glm-5.3</loc>
+    <lastmod>2026-10-21T14:19:39.865Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/overview/concept-param</loc>
+    <lastmod>2026-10-21T14:19:39.870Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/overview/migrate-to-glm-new</loc>
+    <lastmod>2026-10-21T14:19:39.866Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/overview/overview</loc>
+    <lastmod>2026-10-21T14:19:39.864Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/overview/pricing</loc>
+    <lastmod>2026-10-21T14:19:39.867Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/overview/quick-start</loc>
+    <lastmod>2026-10-21T14:19:39.834Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/tools/stream-tool</loc>
+    <lastmod>2026-10-21T14:19:39.835Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/tools/web-search</loc>
+    <lastmod>2026-10-21T14:19:39.864Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/guides/vlm/glm-5.3-flash</loc>
+    <lastmod>2026-10-21T14:19:39.834Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/help/faq</loc>
+    <lastmod>2026-10-21T14:19:39.832Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/legal-agreement/privacy-policy</loc>
+    <lastmod>2026-10-21T14:19:39.866Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/legal-agreement/subscription-terms</loc>
+    <lastmod>2026-10-21T14:19:39.869Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/legal-agreement/terms-of-use</loc>
+    <lastmod>2026-10-21T14:19:39.831Z</lastmod>
+  </url>
+
+  <url>
+    <loc>https://docs.z.ai/release-notes/new-released</loc>
+    <lastmod>2026-10-10T10:16:52.597Z</lastmod>
+  </url>
+</urlset>
