@@ -71,6 +71,7 @@ func initializeChatOptions() (*app.Client, app.ChatOptions, bool) {
 	client := newClient()
 	baseOpts := app.DefaultChatOptions()
 	baseOpts.FilePath = viper.GetString("file")
+	client.EnableSessionFileReuse(baseOpts.FilePath)
 	baseOpts.Model = strings.TrimSpace(chatModelFlag)
 	if baseOpts.Model == "" {
 		baseOpts.Model = viper.GetString("api.model")

@@ -2,8 +2,6 @@ package cmd
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -365,74 +363,6 @@ func saveAudioToHistory(resp *app.TranscriptionResponse) {
 	}
 }
 
-// AudioCache stores partial transcription results for resume support.
-type AudioCache struct {
-	Chunks map[int]string `json:"chunks"` // chunk index -> transcribed text
-}
-
-// getCachePath returns the cache file path for a given source file.
-func getCachePath(sourcePath string) (string, error) {
-	file, err := os.Open(sourcePath)
-	if err != nil {
-		return "", err
-	}
-	defer closeFile(file)
-
-	limitedReader := io.LimitReader(file, MaxFileSize)
-	data, err := io.ReadAll(limitedReader)
-	if err != nil {
-		return "", err
-	}
-
-	// Check if file exceeds our limit
-	fileInfo, err := os.Stat(sourcePath)
-	if err != nil {
-		return "", err
-	}
-	if fileInfo.Size() > MaxFileSize {
-		return "", fmt.Errorf("audio cache file exceeds maximum size of %d bytes", MaxFileSize)
-	}
-
-	hash := sha256.Sum256(data)
-	hashStr := hex.EncodeToString(hash[:8])
-
-	cacheDir := filepath.Join(os.Getenv("HOME"), ".cache", "zai", "audio")
-	if err := os.MkdirAll(cacheDir, 0700); err != nil { //nolint:gosec // G703: path derived from HOME env, not user-controlled input
-		return "", err
-	}
-
-	return filepath.Join(cacheDir, hashStr+".json"), nil
-}
-
-// loadCache loads cached transcription results.
-func loadCache(cachePath string) (*AudioCache, error) {
-	data, err := os.ReadFile(cachePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &AudioCache{Chunks: make(map[int]string)}, nil
-		}
-		return nil, err
-	}
-
-	var cache AudioCache
-	if err := json.Unmarshal(data, &cache); err != nil {
-		return nil, err
-	}
-	if cache.Chunks == nil {
-		cache.Chunks = make(map[int]string)
-	}
-	return &cache, nil
-}
-
-// saveCache saves transcription cache to disk.
-func saveCache(cachePath string, cache *AudioCache) error {
-	data, err := json.MarshalIndent(cache, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(cachePath, data, 0600)
-}
-
 // chunkResult holds the result of transcribing a single chunk.
 type chunkResult struct {
 	index int
@@ -461,7 +391,7 @@ func transcribeChunks(ctx context.Context, client *app.Client, chunks []string, 
 
 	// Clear cache if requested
 	if audioClearCache && cachePath != "" {
-		if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
+		if err := clearAudioCache(cachePath); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Could not clear cache: %v\n", err)
 		}
 		fmt.Fprintf(os.Stderr, "Cache cleared.\n")
@@ -488,28 +418,31 @@ func transcribeChunks(ctx context.Context, client *app.Client, chunks []string, 
 		results := transcribeParallel(ctx, client, chunks, pending)
 		for res := range results {
 			if res.err != nil {
-				if cachePath != "" {
-					_ = saveCache(cachePath, cache) // Best effort save on error
-				}
 				return fmt.Errorf("chunk %d failed: %w", res.index+1, res.err)
 			}
 			cache.Chunks[res.index] = res.text
 			if cachePath != "" {
-				if err := saveCache(cachePath, cache); err != nil {
+				if err := appendAudioChunk(cachePath, res.index, res.text); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: Could not save cache: %v\n", err)
 				}
 			}
 		}
 	}
 
+	if cachePath != "" && !allDone {
+		if err := compactAudioCache(cachePath, cache); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Could not compact cache: %v\n", err)
+		}
+	}
+
 	// Assemble final text in order
-	var fullText string
+	var fullText strings.Builder
 	for i := range chunks {
 		if text, ok := cache.Chunks[i]; ok {
-			if fullText != "" {
-				fullText += "\n"
+			if fullText.Len() != 0 {
+				fullText.WriteByte('\n')
 			}
-			fullText += text
+			fullText.WriteString(text)
 		}
 	}
 
@@ -517,12 +450,12 @@ func transcribeChunks(ctx context.Context, client *app.Client, chunks []string, 
 	if audioJSON {
 		output := map[string]interface{}{
 			"model": audioModel,
-			"text":  fullText,
+			"text":  fullText.String(),
 		}
 		data, _ := json.MarshalIndent(output, "", "  ")
 		fmt.Println(string(data))
 	} else {
-		fmt.Println(fullText)
+		fmt.Println(fullText.String())
 	}
 
 	return nil

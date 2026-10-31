@@ -22,9 +22,8 @@ type SearchCache interface {
 
 // FileSearchCache implements persistent file-based caching.
 type FileSearchCache struct {
-	dir            string
-	mutex          sync.RWMutex
-	cleanupRunning sync.Mutex // Guards async cleanup to prevent storms
+	dir   string
+	mutex sync.RWMutex
 }
 
 // NewFileSearchCache creates a new file-based search cache.
@@ -37,37 +36,28 @@ func NewFileSearchCache(dir string) *FileSearchCache {
 // Get retrieves cached search results.
 func (fsc *FileSearchCache) Get(query string, opts SearchOptions) ([]SearchResult, bool) {
 	fsc.mutex.RLock()
-	defer fsc.mutex.RUnlock()
 
 	cacheKey := generateCacheKey(query, opts)
 	filename := filepath.Join(fsc.dir, cacheKey+".json")
 
-	// Check if file exists
-	if _, err := os.Stat(filename); os.IsNotExist(err) {
-		return nil, false
-	}
-
-	// Read and parse cache entry
 	data, err := os.ReadFile(filename) //nolint:gosec // G304: filename is constructed internally, not from user input
 	if err != nil {
+		fsc.mutex.RUnlock()
 		return nil, false
 	}
 
 	var entry SearchCacheEntry
-	if err := json.Unmarshal(data, &entry); err != nil {
-		// Corrupted cache entry - trigger cleanup to remove it
-		go fsc.tryCleanup()
-		return nil, false
+	decodeErr := json.Unmarshal(data, &entry)
+	expired := decodeErr == nil && time.Now().After(entry.ExpiresAt)
+	if decodeErr == nil && !expired {
+		fsc.mutex.RUnlock()
+		return entry.Results, true
 	}
-
-	// Check if expired
-	if time.Now().After(entry.ExpiresAt) {
-		// Trigger async cleanup to remove expired entries
-		go fsc.tryCleanup()
-		return nil, false
-	}
-
-	return entry.Results, true
+	fsc.mutex.RUnlock()
+	// Only remove the failed entry, and never delete a replacement written
+	// between the read and eviction (including a replacement by another process).
+	fsc.removeUnchanged(filename, data)
+	return nil, false
 }
 
 // Set stores search results in cache.
@@ -137,16 +127,6 @@ func (fsc *FileSearchCache) Clear() error {
 	}
 
 	return nil
-}
-
-// tryCleanup attempts to run cleanup if not already running.
-// Uses TryLock to avoid blocking and prevent cleanup storms.
-func (fsc *FileSearchCache) tryCleanup() {
-	if !fsc.cleanupRunning.TryLock() {
-		return // Another cleanup is already running
-	}
-	defer fsc.cleanupRunning.Unlock()
-	_ = fsc.Cleanup() // Ignore error in async cleanup
 }
 
 // Cleanup removes expired entries.

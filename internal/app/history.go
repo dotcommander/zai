@@ -111,16 +111,18 @@ func (h *FileHistoryStore) GetRecent(limit int) ([]HistoryEntry, error) {
 	}
 	defer closeFile(file)
 
+	if limit > 0 {
+		entries, err := readRecentHistoryEntries(file, limit)
+		if err != nil {
+			return nil, fmt.Errorf("error reading history file: %w", err)
+		}
+		return entries, nil
+	}
+
 	entries, err := readHistoryEntries(file)
 	if err != nil {
 		return nil, fmt.Errorf("error reading history file: %w", err)
 	}
-
-	// Return most recent entries
-	if limit > 0 && len(entries) > limit {
-		entries = entries[len(entries)-limit:]
-	}
-
 	return entries, nil
 }
 

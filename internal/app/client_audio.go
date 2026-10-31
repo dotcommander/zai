@@ -63,18 +63,15 @@ func (c *Client) audioRequest(ctx context.Context, audioPath string, opts Transc
 
 	model := resolveModel(opts.Model, c.config.AudioModel, "glm-asr-2512")
 
-	// Build multipart form
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	// Add file from memory
-	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
-	if err != nil {
+	// Build only multipart framing in memory; retain the injected reader's bytes
+	// as the file part so requests remain replayable without a second full copy.
+	var framing bytes.Buffer
+	writer := multipart.NewWriter(&framing)
+	if _, err := writer.CreateFormFile("file", filepath.Base(audioPath)); err != nil {
 		return nil, fmt.Errorf("failed to create form file: %w", err)
 	}
-	if _, copyErr := io.Copy(part, bytes.NewReader(data)); copyErr != nil {
-		return nil, fmt.Errorf("failed to copy file data: %w", copyErr)
-	}
+	prefix := bytes.Clone(framing.Bytes())
+	framing.Reset()
 
 	// Add model
 	writer.WriteField("model", model) //nolint:errcheck // multipart field write
@@ -101,15 +98,23 @@ func (c *Client) audioRequest(ctx context.Context, audioPath string, opts Transc
 		writer.WriteField("hotwords", string(hotwordsJSON)) //nolint:errcheck // multipart field write
 	}
 
-	writer.Close() //nolint:errcheck // multipart writer close
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close multipart form: %w", err)
+	}
+	suffix := bytes.Clone(framing.Bytes())
+	newBody := func() io.ReadCloser {
+		return io.NopCloser(io.MultiReader(bytes.NewReader(prefix), bytes.NewReader(data), bytes.NewReader(suffix)))
+	}
 
 	// Build request
 	url := fmt.Sprintf("%s/audio/transcriptions", c.config.BaseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, body)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, newBody())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	req.ContentLength = int64(len(prefix) + len(data) + len(suffix))
+	req.GetBody = func() (io.ReadCloser, error) { return newBody(), nil }
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.APIKey))
 	req.Header.Set("Accept-Language", "en-US,en")

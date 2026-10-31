@@ -79,6 +79,8 @@ zai --think "Solve this step by step"
 zai --search "Latest news on AI"
 ```
 
+In `zai chat -f path`, local file contents are reused within the session until the file identity, size, modification time, or mode changes. Edits that preserve all of those metadata values may remain unseen; restart the session to reload. URL context is not cached by this mechanism.
+
 ### Pipes
 
 ```bash

@@ -12,7 +12,7 @@ import (
 //nolint:gochecknoglobals // these vars are set by the linker at build time and overridden in tests
 var (
 	// Version is the current version of the application.
-	Version = "0.2.0"
+	Version = "0.2.1"
 
 	// BuildVersion is an explicit linker override for release builds.
 	BuildVersion = ""
